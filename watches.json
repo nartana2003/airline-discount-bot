@@ -1,0 +1,55 @@
+{
+  "_comment": "One object per route you want watched. Edit freely; the bot reads this every run.",
+  "_budget": {
+    "monthly_search_cap": 240,
+    "_note": "SerpApi free tier is 250 searches/month. ONE SEARCH = ONE DATE PAIR - the google_flights engine has no flexible-date mode, so a run samples dates rather than covering a range. The bot refuses to start a run that would breach this cap."
+  },
+  "watches": [
+    {
+      "id": "bne-tokyo",
+      "enabled": true,
+      "label": "Brisbane -> Tokyo Narita (return)",
+      "origin": "BNE",
+      "destination": "NRT",
+      "_destination_note": "Use a REAL airport code. The TYO metro code is accepted by the API but returns zero flights - verified against the live endpoint. NRT (Narita) is where the budget carriers fly; HND (Haneda) is closer to central Tokyo, and is worth a second watch if you have quota spare.",
+
+      "window": {
+        "mode": "rolling",
+        "_mode_note": "'rolling' = always look N days ahead from today, recalculated each run. Use 'fixed' with start_date/end_date only for a trip whose dates are already settled - a fixed window silently empties as it ages past the booking horizon.",
+        "days_from_now_min": 90,
+        "days_from_now_max": 290,
+        "step_days": 5,
+        "_step_note": "Sample every Nth departure date. 200 days / 5 = 40 searches per run. Lower = denser coverage and more searches; this is the main cost dial.",
+        "max_horizon_days": 300,
+        "_horizon_note": "Hard stop on how far ahead to search. Airlines load schedules roughly 300 days out; beyond that every search returns nothing AND still costs a credit. Verified live: 297 days returned flights, 327 days returned none.",
+        "start_date": null,
+        "end_date": null
+      },
+
+      "trip_length_days": { "min": 12, "max": 12 },
+      "_trip_note": "Pinned to exactly 12 days. Each search needs one exact return date, and checking every length against every date would cost 5x. With min == max every probe uses the same duration, so prices are directly comparable across dates - a cheaper result means a cheaper date, not a shorter trip. Widen this (e.g. 10 to 14) to rotate through lengths instead, sampling duration at the cost of like-for-like comparison.",
+
+      "passengers": { "adults": 1 },
+      "travel_class": 1,
+      "stops": 0,
+      "_stops_note": "0 = any, 1 = nonstop only, 2 = 1 stop or fewer, 3 = 2 stops or fewer.",
+
+      "currency": "AUD",
+      "market": { "gl": "au", "hl": "en" },
+
+      "deal_rules": {
+        "_rules_note": "One rule: Google's own verdict on the fare. Absolute price thresholds were removed deliberately - they go stale whenever fares structurally move, and this doesn't.",
+        "alert_on_price_level": ["low"],
+        "_level_note": "Google's own verdict, built on real price history for this route and these dates, and it recalibrates by season on its own. 'low' appears to mean roughly 'below the floor of the typical range', so it is a high bar - expect quiet weeks. Add 'typical' if you want far more noise."
+      },
+
+      "notify": {
+        "email": true,
+        "cooldown_hours": null,
+        "_cooldown_note": "null = never email the same date pair twice, however many runs go by. Set a number of hours instead if you'd rather be reminded periodically about a fare that's still cheap.",
+        "renotify_on_drop_pct": 5,
+        "_renotify_note": "The one exception to the above: if the price fell another this-many % since the last alert, it gets through. Being told twice about the same fare is noise; a further drop is new information."
+      }
+    }
+  ]
+}

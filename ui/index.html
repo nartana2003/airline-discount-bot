@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight Watch Control Panel</title>
+<style>
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --panel-2: #fbfbfd;
+  --sel: #eaf1fe;
+  --ink: #14161a;
+  --ink-2: #5c6470;
+  --ink-3: #8b929c;
+  --line: #e2e5ea;
+  --line-2: #d0d5dd;
+  --accent: #2f6df6;
+  --accent-ink: #ffffff;
+  --good: #17794a;
+  --good-bg: #e7f5ee;
+  --warn: #8a5a00;
+  --warn-bg: #fdf3e0;
+  --bad: #b4272a;
+  --bad-bg: #fdeceb;
+  --radius: 10px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --panel: #171a20; --panel-2: #1d2128; --sel: #1c2740;
+    --ink: #e8eaee; --ink-2: #a2aab6; --ink-3: #737b87;
+    --line: #272c35; --line-2: #333a45;
+    --accent: #5b8cff; --accent-ink: #0b0d11;
+    --good: #5ed49a; --good-bg: #16301f;
+    --warn: #e8b661; --warn-bg: #302614;
+    --bad: #ff8b86; --bad-bg: #341b1b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --panel: #171a20; --panel-2: #1d2128; --sel: #1c2740;
+  --ink: #e8eaee; --ink-2: #a2aab6; --ink-3: #737b87;
+  --line: #272c35; --line-2: #333a45;
+  --accent: #5b8cff; --accent-ink: #0b0d11;
+  --good: #5ed49a; --good-bg: #16301f;
+  --warn: #e8b661; --warn-bg: #302614;
+  --bad: #ff8b86; --bad-bg: #341b1b;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1240px; margin: 0 auto; padding: 18px 20px 40px; }
+
+/* ---------- top bar ---------- */
+.top {
+  position: sticky; top: 0; z-index: 30; background: var(--bg);
+  padding: 6px 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 16px;
+}
+.top-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h1 { font-size: 16px; margin: 0 14px 0 0; letter-spacing: -0.01em; white-space: nowrap; }
+h1 .dot { color: var(--accent); opacity: 0; margin-left: 4px; }
+h1.dirty .dot { opacity: 1; }
+.spacer { flex: 1 1 auto; }
+
+button {
+  font: inherit; font-size: 13.5px; color: var(--ink);
+  background: var(--panel); border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 6px 11px; cursor: pointer; white-space: nowrap;
+  transition: background .12s, border-color .12s, color .12s;
+}
+button:hover:not(:disabled) { border-color: var(--ink-3); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+button.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
+button.ghost:hover:not(:disabled) { background: var(--panel); color: var(--ink); }
+button.danger:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
+kbd {
+  font: 11px var(--mono); background: var(--panel-2); border: 1px solid var(--line-2);
+  border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--ink-2);
+}
+
+/* ---------- budget strip ---------- */
+.budget {
+  display: flex; gap: 22px; align-items: center; flex-wrap: wrap;
+  margin-top: 12px; font-size: 13px;
+}
+.stat { display: flex; align-items: baseline; gap: 6px; }
+.stat .n { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 12px; color: var(--ink-3); }
+#s-cap { width: 74px; font-size: 15px; font-weight: 650; padding: 3px 6px; }
+.verdict { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; font-weight: 600; }
+.verdict.ok { background: var(--good-bg); color: var(--good); }
+.verdict.warn { background: var(--warn-bg); color: var(--warn); }
+.verdict.over { background: var(--bad-bg); color: var(--bad); }
+
+/* ---------- two-pane layout ---------- */
+.app { display: grid; grid-template-columns: 296px minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .app { grid-template-columns: 1fr; } }
+
+/* ---------- sidebar ---------- */
+.side {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; position: sticky; top: 138px;
+}
+@media (max-width: 900px) { .side { position: static; } }
+.side-top { padding: 10px; border-bottom: 1px solid var(--line); }
+.search-box { position: relative; }
+.search-box svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--ink-3); }
+#filter { padding-left: 29px; padding-right: 26px; }
+#filter-clear {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  border: 0; background: none; color: var(--ink-3); padding: 2px 6px; font-size: 15px; display: none;
+}
+.side-top.has-q #filter-clear { display: block; }
+.tabs-mini { display: flex; gap: 4px; margin-top: 8px; }
+.tabs-mini button {
+  flex: 1; font-size: 12px; padding: 4px 6px; border-radius: 6px;
+  background: transparent; border-color: transparent; color: var(--ink-2);
+}
+.tabs-mini button.on { background: var(--sel); color: var(--accent); font-weight: 650; }
+
+.bulk {
+  display: none; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 10px; background: var(--sel); border-bottom: 1px solid var(--line);
+}
+.bulk.on { display: flex; }
+.bulk .count { font-size: 12.5px; font-weight: 650; color: var(--accent); margin-right: auto; }
+.bulk button { font-size: 12px; padding: 3px 8px; }
+
+.routes { list-style: none; margin: 0; padding: 6px; max-height: min(58vh, 560px); overflow-y: auto; }
+@media (max-width: 900px) { .routes { max-height: 300px; } }
+.rt {
+  display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 7px;
+  cursor: pointer; user-select: none; position: relative;
+}
+.rt:hover { background: var(--panel-2); }
+.rt.focus { background: var(--sel); }
+.rt.focus::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 2px; background: var(--accent);
+}
+.rt input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex: none; }
+.rt .txt { min-width: 0; flex: 1; }
+.rt .nm { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt .rd { font: 11.5px var(--mono); color: var(--ink-3); }
+.rt.off .nm, .rt.off .rd { opacity: .45; }
+.rt .err { color: var(--bad); font-weight: 700; }
+.rt .cst { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; flex: none; }
+.side-foot { padding: 8px 10px; border-top: 1px solid var(--line); }
+.side-foot button { width: 100%; }
+.side-empty { padding: 26px 14px; text-align: center; color: var(--ink-3); font-size: 13px; }
+
+/* ---------- detail ---------- */
+.detail { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); min-height: 420px; }
+.d-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.d-head .title { font-size: 15.5px; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-head .pos { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.d-head .nav { display: flex; gap: 4px; }
+.d-head .nav button { padding: 4px 9px; font-size: 13px; }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-2); }
+.pill.on { background: var(--good-bg); color: var(--good); border-color: transparent; }
+
+.tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button {
+  border: 0; background: none; border-radius: 0; color: var(--ink-2);
+  padding: 9px 12px; font-size: 13.5px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 650; }
+.tabs button .badge { color: var(--bad); font-weight: 700; }
+
+.panel-body { padding: 18px 16px 22px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 13px; }
+label.f { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--ink-2); }
+input[type=text], input[type=number], input[type=date], input[type=search], select {
+  font: inherit; font-size: 14px; color: var(--ink);
+  background: var(--panel-2); border: 1px solid var(--line-2);
+  border-radius: 7px; padding: 7px 9px; width: 100%;
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.hint { font-size: 12px; color: var(--ink-3); margin: 12px 0 0; }
+.row-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; align-self: end; padding-bottom: 8px; }
+.row-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.levels { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 15px; }
+.levels label { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.levels input { width: 16px; height: 16px; accent-color: var(--accent); }
+.issues { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 13px; margin-bottom: 16px; font-size: 13px; }
+.issues ul { margin: 6px 0 0; padding-left: 18px; }
+.blank { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 420px; gap: 14px; color: var(--ink-3); text-align: center; padding: 30px; }
+
+/* ---------- toast / dialog ---------- */
+#status {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(140%);
+  background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px;
+  font-size: 13.5px; font-weight: 500; transition: transform .22s ease; z-index: 60;
+  max-width: 90vw; text-align: center;
+}
+#status.show { transform: translateX(-50%) translateY(0); }
+#status.err { background: var(--bad); color: #fff; }
+
+dialog {
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+  color: var(--ink); padding: 0; max-width: min(760px, 92vw); width: 100%;
+}
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog .dh { padding: 16px 18px 0; font-weight: 650; }
+dialog textarea {
+  font: 12.5px/1.5 var(--mono); width: 100%; min-height: 46vh; resize: vertical;
+  border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: var(--panel-2); color: var(--ink); padding: 14px 18px; margin-top: 14px;
+}
+dialog textarea:focus { outline: none; }
+dialog .df { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 18px; flex-wrap: wrap; }
+dialog.help { max-width: 460px; }
+dialog.help .hb { padding: 14px 18px 4px; }
+dialog.help table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+dialog.help td { padding: 5px 0; }
+dialog.help td:first-child { width: 92px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div class="top-row">
+      <h1 id="h1">Flight Watch<span class="dot">•</span></h1>
+      <button id="btn-open" class="primary">Open watches.json</button>
+      <button id="btn-save" disabled>Save</button>
+      <span class="spacer"></span>
+      <button id="btn-json" class="ghost">JSON</button>
+      <button id="btn-settings" class="ghost" title="Passengers, cabin, currency, notifications — shared by every route">⚙ Settings</button>
+      <button id="btn-help" class="ghost" title="Keyboard shortcuts">?</button>
+      <button id="btn-theme" class="ghost" title="Toggle theme">◐</button>
+    </div>
+    <div class="budget">
+      <div class="stat"><span class="n" id="s-active">0</span><span class="l">active</span></div>
+      <div class="stat"><span class="n" id="s-run">0</span><span class="l">searches / run</span></div>
+      <div class="stat"><span class="n" id="s-month">0</span><span class="l">per month (weekly runs)</span></div>
+      <div class="stat"><input type="number" id="s-cap" min="1" max="100000"><span class="l">cap</span></div>
+      <span class="verdict" id="s-verdict">—</span>
+    </div>
+  </div>
+
+  <div class="app">
+    <aside class="side">
+      <div class="side-top" id="side-top">
+        <div class="search-box">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          <input type="search" id="filter" placeholder="Filter routes…  /">
+          <button id="filter-clear" title="Clear">×</button>
+        </div>
+        <div class="tabs-mini" id="scope">
+          <button data-scope="all" class="on">All</button>
+          <button data-scope="active">Active</button>
+          <button data-scope="paused">Paused</button>
+        </div>
+      </div>
+      <div class="bulk" id="bulk">
+        <span class="count" id="bulk-count"></span>
+        <button id="btn-enable">Enable</button>
+        <button id="btn-disable">Pause</button>
+        <button id="btn-dup">Duplicate</button>
+        <button id="btn-del" class="danger">Delete</button>
+        <button id="btn-clearsel" class="ghost">Clear</button>
+      </div>
+      <ul class="routes" id="routes"></ul>
+      <div class="side-foot"><button id="btn-add">+ Add route</button></div>
+    </aside>
+
+    <section class="detail" id="detail"></section>
+  </div>
+</div>
+
+<div id="status"></div>
+
+<dialog id="dlg">
+  <div class="dh">watches.json</div>
+  <textarea id="dlg-text" spellcheck="false"></textarea>
+  <div class="df">
+    <button id="dlg-copy">Copy</button>
+    <button id="dlg-download">Download</button>
+    <button id="dlg-apply" class="primary">Load from text</button>
+    <button id="dlg-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="help" class="help">
+  <div class="dh">Shortcuts</div>
+  <div class="hb">
+    <table>
+      <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move between routes</td></tr>
+      <tr><td><kbd>/</kbd></td><td>Filter routes</td></tr>
+      <tr><td><kbd>1</kbd> <kbd>2</kbd></td><td>Jump to tab</td></tr>
+      <tr><td><kbd>Space</kbd></td><td>Select focused route</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Clear selection / filter</td></tr>
+    </table>
+  </div>
+  <div class="df"><button id="help-close" class="primary">Got it</button></div>
+</dialog>
+
+<dialog id="settings" class="help">
+  <div class="dh">Settings — shared by every route</div>
+  <div class="hb">
+    <p class="hint" style="margin-top:0">Applying writes these values into every route now. New routes pick them up automatically when added.</p>
+    <div class="grid">
+      <label class="f">Adults<input type="number" id="g-adults" min="1" max="9"></label>
+      <label class="f">Cabin<select id="g-class"></select></label>
+      <label class="f">Stops<select id="g-stops"></select></label>
+      <label class="f">Currency<select id="g-currency"></select></label>
+      <label class="f">Country (gl)<input type="text" id="g-gl" maxlength="2"></label>
+      <label class="f">Language (hl)<input type="text" id="g-hl" maxlength="2"></label>
+    </div>
+    <div class="row-check" style="padding-top:10px"><input type="checkbox" id="g-email"><span>Email me</span></div>
+    <div class="grid" style="margin-top:10px">
+      <label class="f">Remind again after <span style="color:var(--ink-3)">(hours; blank = never)</span>
+        <input type="number" id="g-cooldown" min="0" max="8760" placeholder="never"></label>
+      <label class="f">Re-alert on further drop (%)<input type="number" id="g-renotify" min="0" max="90"></label>
+    </div>
+    <p class="hint">A date pair you've already been emailed about stays quiet — that memory lives in <code>state.json</code>. A further price drop always gets through.</p>
+  </div>
+  <div class="df">
+    <button id="settings-apply" class="primary">Apply to all routes</button>
+    <button id="settings-close">Close</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+
+const CLASSES = { 1: "Economy", 2: "Premium economy", 3: "Business", 4: "First" };
+const STOPS   = { 0: "Any number", 1: "Nonstop only", 2: "1 stop or fewer", 3: "2 stops or fewer" };
+const LEVELS  = ["low", "typical", "high"];
+const CURRENCIES = ["AUD","USD","EUR","GBP","JPY","NZD","SGD","CAD","THB","IDR"];
+const TABS = ["Route", "Dates & deal"];
+// Weekly schedule (see .github/workflows/check-flights.yml).
+const RUNS_PER_MONTH = 4.3;
+
+const NOTES = {
+  destination: "Metro codes (TYO, LON, NYC) cover all of a city's airports.",
+  window_mode: "'rolling' = always look N days ahead from today. Use 'fixed' with start_date/end_date for a specific season.",
+  step: "Sample every Nth departure date. One search = one date pair, so this is the main cost dial.",
+  horizon: "Airlines load schedules roughly 300 days out. Beyond that a search returns nothing and still costs a credit.",
+  stops: "0 = any, 1 = nonstop only, 2 = 1 stop or fewer, 3 = 2 stops or fewer.",
+  level: "Google's own verdict on the fare, built on real price history and recalibrated by season on its own — so there is nothing here to tune. 'low' is the strong signal and a high bar; expect quiet weeks. Add 'typical' if you want far more noise.",
+  cooldown: "Blank = never email the same date pair twice, however many runs go by. Set hours instead to be reminded periodically about a fare that's still cheap.",
+  renotify: "The one exception: if the price fell another this-many % since the last alert, it gets through anyway."
+};
+
+// ---------------------------------------------------------------- state
+// Selection and focus track watch OBJECTS, not indices, so deleting or
+// filtering can never point them at the wrong route.
+let doc = null;
+let handle = null;
+let dirty = false;
+let focused = null;
+let selected = new Set();
+let tab = 0;
+let query = "";
+let scope = "all";
+
+const uids = new WeakMap();
+let uidSeq = 0;
+const uidOf = (w) => { if (!uids.has(w)) uids.set(w, `w${++uidSeq}`); return uids.get(w); };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
+  { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+
+function toast(msg, isErr = false) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = "show" + (isErr ? " err" : "");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = ""; }, isErr ? 5200 : 2600);
+}
+
+// ---------------------------------------------------------------- budget math
+// Mirrors Watch.chunks() in flightbot/config.py, including the rule that
+// absorbs a runt trailing chunk. If that logic changes, change both.
+// Mirrors Watch.probes() in flightbot/config.py. One search = one date pair;
+// the engine has no flexible-date mode, so a run SAMPLES the window.
+function probeCount(w) {
+  const win = w.window || {};
+  const step = Math.max(+win.step_days || 5, 1);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const DAY = 86400000;
+
+  let start, end;
+  if (win.mode === "fixed" && win.start_date && win.end_date) {
+    start = new Date(win.start_date + "T00:00:00");
+    end   = new Date(win.end_date   + "T00:00:00");
+  } else {
+    start = new Date(+today + (+win.days_from_now_min || 0) * DAY);
+    end   = new Date(+today + (+win.days_from_now_max || 0) * DAY);
+  }
+  if (+start < +today + DAY) start = new Date(+today + DAY);
+  const horizon = +today + (+win.max_horizon_days || 300) * DAY;
+  if (+end > horizon) end = new Date(horizon);
+  if (+end < +start) return 0;
+  return Math.floor((+end - +start) / (step * DAY)) + 1;
+}
+
+const runCost = (w) => probeCount(w);
+
+// How much of the window actually gets looked at.
+function coverage(w) {
+  const win = w.window || {};
+  const step = Math.max(+win.step_days || 5, 1);
+  return Math.round(100 / step);
+}
+
+function refreshBudget() {
+  const active = (doc?.watches || []).filter(w => w.enabled !== false);
+  const perRun = active.reduce((n, w) => n + runCost(w), 0);
+  const perMonth = Math.round(perRun * RUNS_PER_MONTH);
+  const cap = +($("s-cap").value || 0);
+
+  $("s-active").textContent = active.length;
+  $("s-run").textContent = perRun;
+  $("s-month").textContent = perMonth.toLocaleString();
+
+  const v = $("s-verdict");
+  if (!cap) { v.textContent = "—"; v.className = "verdict"; }
+  else if (perMonth > cap) {
+    v.textContent = `Over cap by ${(perMonth - cap).toLocaleString()}/mo`;
+    v.className = "verdict over";
+  } else if (perMonth > cap * 0.85) {
+    v.textContent = `Near cap — ${(cap - perMonth).toLocaleString()} spare`;
+    v.className = "verdict warn";
+  } else {
+    v.textContent = `Fits — ${(cap - perMonth).toLocaleString()} spare/mo`;
+    v.className = "verdict ok";
+  }
+}
+
+// ---------------------------------------------------------------- validation
+function issuesFor(w, all) {
+  const out = [];
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(w.id || "")) out.push("ID must be letters, numbers and dashes.");
+  if (all.filter(o => o.id === w.id).length > 1) out.push(`Another route already uses the ID “${w.id}”.`);
+  if (!/^[A-Z]{3}$/.test(w.origin || "")) out.push("Origin must be a 3-letter code.");
+  if (!/^[A-Z]{3}$/.test(w.destination || "")) out.push("Destination must be a 3-letter code.");
+  if (w.origin && w.origin === w.destination) out.push("Origin and destination are the same.");
+  const win = w.window || {};
+  if (win.mode === "fixed") {
+    if (!win.start_date || !win.end_date) out.push("Fixed mode needs both dates.");
+    else if (win.end_date <= win.start_date) out.push("Window end must be after start.");
+  } else if (+win.days_from_now_max <= +win.days_from_now_min) {
+    out.push("“To” must be greater than “from”.");
+  }
+  const t = w.trip_length_days || {};
+  if (+t.max < +t.min) out.push("Max trip length is below min.");
+  const r = w.deal_rules || {};
+  if (!(r.alert_on_price_level?.length)) {
+    out.push("No price level ticked — this route would never alert.");
+  }
+  return out;
+}
+const allIssues = () => (doc?.watches || []).flatMap(w => issuesFor(w, doc.watches));
+
+// ---------------------------------------------------------------- sidebar
+function visibleWatches() {
+  const q = query.trim().toLowerCase();
+  return (doc?.watches || []).filter(w => {
+    if (scope === "active" && w.enabled === false) return false;
+    if (scope === "paused" && w.enabled !== false) return false;
+    if (!q) return true;
+    return [w.label, w.id, w.origin, w.destination].join(" ").toLowerCase().includes(q);
+  });
+}
+
+function renderSidebar() {
+  const list = $("routes");
+  const vis = visibleWatches();
+  const total = doc?.watches?.length || 0;
+
+  if (!doc) {
+    list.innerHTML = `<li class="side-empty">No file loaded</li>`;
+  } else if (!total) {
+    list.innerHTML = `<li class="side-empty">No routes yet.<br>Add one below.</li>`;
+  } else if (!vis.length) {
+    list.innerHTML = `<li class="side-empty">Nothing matches<br>“${esc(query)}”</li>`;
+  } else {
+    list.innerHTML = vis.map(w => {
+      const bad = issuesFor(w, doc.watches).length;
+      const c = runCost(w);
+      return `<li class="rt ${w === focused ? "focus" : ""} ${w.enabled === false ? "off" : ""}" data-uid="${uidOf(w)}">
+        <input type="checkbox" data-act="sel" ${selected.has(w) ? "checked" : ""} title="Select">
+        <span class="txt">
+          <span class="nm">${bad ? '<span class="err" title="Has problems">!</span> ' : ""}${esc(w.label || w.id)}</span>
+          <span class="rd">${esc(w.origin)} → ${esc(w.destination)}</span>
+        </span>
+        <span class="cst">${c}</span>
+      </li>`;
+    }).join("");
+  }
+
+  const n = selected.size;
+  $("bulk").className = "bulk" + (n ? " on" : "");
+  $("bulk-count").textContent = `${n} selected`;
+  $("side-top").className = "side-top" + (query ? " has-q" : "");
+  [...$("scope").children].forEach(b => b.className = b.dataset.scope === scope ? "on" : "");
+}
+
+// ---------------------------------------------------------------- detail
+// Spells out the sampling trade rather than leaving it implicit.
+function windowSummary(w) {
+  const n = probeCount(w);
+  const cov = coverage(w);
+  const win = w.window || {};
+  const perMonth = Math.round(n * RUNS_PER_MONTH);
+  if (!n) return `<p class="hint">This window is empty - check the dates and the horizon.</p>`;
+  return `<p class="hint">
+    Samples <strong>${n}</strong> date pair${n === 1 ? "" : "s"} per run
+    (<strong>${perMonth.toLocaleString()}</strong>/month at weekly runs),
+    covering about <strong>${cov}%</strong> of departure dates in the window.
+    One search = one exact date pair; the API has no flexible-date mode, so the
+    rest of the window isn't checked. Lower <em>step</em> for denser coverage
+    and a bigger bill.
+    ${(+win.days_from_now_max || 0) > (+win.max_horizon_days || 300)
+      ? `<br><span style="color:var(--warn)">Window reaches past the ${+win.max_horizon_days || 300}-day
+         horizon - those dates aren't on sale yet and would return nothing. They're clipped automatically.</span>`
+      : ""}
+  </p>`;
+}
+
+function tabPanel(w) {
+  const win = w.window || {};
+  const rules = w.deal_rules || {};
+  const trip = w.trip_length_days || {};
+
+  if (tab === 0) return `
+    <div class="grid">
+      <label class="f">Label<input type="text" data-k="label" value="${esc(w.label)}"></label>
+      <label class="f">ID <span style="color:var(--ink-3)">(for --watch)</span><input type="text" data-k="id" value="${esc(w.id)}"></label>
+      <label class="f">Origin<input type="text" data-k="origin" value="${esc(w.origin)}" maxlength="3" style="text-transform:uppercase"></label>
+      <label class="f">Destination<input type="text" data-k="destination" value="${esc(w.destination)}" maxlength="3" style="text-transform:uppercase"></label>
+      <div class="row-check"><input type="checkbox" data-k="enabled" ${w.enabled !== false ? "checked" : ""}><span>Actively tracked</span></div>
+    </div>
+    <p class="hint">${NOTES.destination} Passengers, cabin, currency and notification settings are shared across every route — see the <strong>⚙ settings</strong> button above.</p>`;
+
+  return `
+    <div class="grid">
+      <label class="f">Mode
+        <select data-k="window.mode">
+          <option value="rolling" ${win.mode !== "fixed" ? "selected" : ""}>Rolling (N days ahead)</option>
+          <option value="fixed" ${win.mode === "fixed" ? "selected" : ""}>Fixed dates</option>
+        </select>
+      </label>
+      ${win.mode === "fixed" ? `
+        <label class="f">Earliest departure<input type="date" data-k="window.start_date" value="${esc(win.start_date || "")}"></label>
+        <label class="f">Latest departure<input type="date" data-k="window.end_date" value="${esc(win.end_date || "")}"></label>
+      ` : `
+        <label class="f">From (days ahead)<input type="number" data-k="window.days_from_now_min" value="${+win.days_from_now_min || 0}" min="1" max="400"></label>
+        <label class="f">To (days ahead)<input type="number" data-k="window.days_from_now_max" value="${+win.days_from_now_max || 0}" min="2" max="400"></label>
+      `}
+      <label class="f">Step (days between samples)<input type="number" data-k="window.step_days" value="${+win.step_days || 5}" min="1" max="60"></label>
+      <label class="f">Trip length min<input type="number" data-k="trip_length_days.min" value="${+trip.min || 0}" min="0" max="365"></label>
+      <label class="f">Trip length max<input type="number" data-k="trip_length_days.max" value="${+trip.max || 0}" min="0" max="365"></label>
+    </div>
+    <div id="live-box">${windowSummary(w)}</div>
+    <div class="levels" style="margin-top:16px">
+      ${LEVELS.map(l => `<label><input type="checkbox" data-k="deal_rules.alert_on_price_level" value="${l}"
+         ${(rules.alert_on_price_level || []).includes(l) ? "checked" : ""}>Google rates it “${l}”</label>`).join("")}
+    </div>
+    <p class="hint">${NOTES.level}</p>`;
+}
+
+function renderDetail() {
+  const el = $("detail");
+  if (!doc) {
+    el.innerHTML = `<div class="blank"><div style="font-size:15px;color:var(--ink-2)">No watchlist loaded</div>
+      <div>Click <strong>Open watches.json</strong> above,<br>or paste it in via <strong>JSON</strong>.</div></div>`;
+    return;
+  }
+  if (!focused) {
+    el.innerHTML = `<div class="blank"><div style="font-size:15px;color:var(--ink-2)">No route selected</div>
+      <div>Pick one from the list, or add a new route.</div></div>`;
+    return;
+  }
+
+  const list = doc.watches;
+  const idx = list.indexOf(focused);
+  const probs = issuesFor(focused, list);
+
+  el.innerHTML = `
+    <div class="d-head">
+      <span class="title">${esc(focused.label || focused.id)}</span>
+      <span class="pill ${focused.enabled !== false ? "on" : ""}">${focused.enabled !== false ? "active" : "paused"}</span>
+      <span class="spacer"></span>
+      <span class="pos">${idx + 1} of ${list.length}</span>
+      <span class="nav">
+        <button id="d-prev" ${idx <= 0 ? "disabled" : ""} title="Previous (↑)">↑</button>
+        <button id="d-next" ${idx >= list.length - 1 ? "disabled" : ""} title="Next (↓)">↓</button>
+      </span>
+    </div>
+    <div class="tabs">
+      ${TABS.map((t, i) => `<button data-tab="${i}" class="${i === tab ? "on" : ""}">${t}${
+        i === 1 && probs.some(p => p.includes("never alert")) ? ' <span class="badge">!</span>' : ""}</button>`).join("")}
+    </div>
+    <div class="panel-body">
+      ${probs.length ? `<div class="issues"><strong>Needs attention</strong><ul>${probs.map(p => `<li>${esc(p)}</li>`).join("")}</ul></div>` : ""}
+      ${tabPanel(focused)}
+    </div>`;
+}
+
+function render() {
+  if (doc && !focused && doc.watches?.length) focused = doc.watches[0];
+  if (doc && focused && !doc.watches.includes(focused)) focused = doc.watches[0] || null;
+  renderSidebar();
+  renderDetail();
+  refreshBudget();
+  $("btn-save").disabled = !doc || !dirty;
+}
+
+function markDirty() {
+  dirty = true;
+  $("btn-save").disabled = false;
+  $("h1").className = "dirty";
+}
+
+// ---------------------------------------------------------------- editing
+function setPath(obj, path, value) {
+  const parts = path.split(".");
+  let node = obj;
+  for (const p of parts.slice(0, -1)) node = (node[p] ??= {});
+  node[parts.at(-1)] = value;
+}
+
+function readField(target, w) {
+  const key = target.dataset.k;
+  if (!key) return false;
+  if (key === "deal_rules.alert_on_price_level") {
+    const boxes = [...$("detail").querySelectorAll('[data-k="deal_rules.alert_on_price_level"]')];
+    setPath(w, key, boxes.filter(b => b.checked).map(b => b.value));
+  } else if (target.type === "checkbox") {
+    setPath(w, key, target.checked);
+  } else if (target.type === "number") {
+    const raw = target.value.trim();
+    setPath(w, key, raw === "" ? 0 : +raw);
+  } else if (key === "origin" || key === "destination") {
+    setPath(w, key, target.value.trim().toUpperCase());
+  } else {
+    setPath(w, key, target.value);
+  }
+  return true;
+}
+
+// `change` fires on commit — safe to re-render.
+$("detail").addEventListener("change", (e) => {
+  if (!focused || !e.target.dataset.k) return;
+  const key = e.target.dataset.k;
+  if (key === "window.mode" && e.target.value === "fixed" && !focused.window.start_date) {
+    const d = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    focused.window.start_date = d(90);
+    focused.window.end_date = d(270);
+  }
+  readField(e.target, focused);
+  markDirty();
+  render();
+});
+
+// `input` fires per keystroke — update the model and only the few bits of
+// chrome that depend on it, so the field never loses focus mid-word.
+$("detail").addEventListener("input", (e) => {
+  if (!focused || !e.target.dataset.k) return;
+  if (e.target.tagName === "SELECT" || e.target.type === "checkbox") return;
+  readField(e.target, focused);
+  markDirty();
+  const box = $("live-box");
+  if (box) box.innerHTML = windowSummary(focused);
+  $("detail").querySelector(".title").textContent = focused.label || focused.id;
+  renderSidebar();
+  refreshBudget();
+});
+
+$("detail").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tab]");
+  if (t) { tab = +t.dataset.tab; renderDetail(); return; }
+  if (e.target.id === "d-prev") step(-1);
+  if (e.target.id === "d-next") step(1);
+});
+
+// ---------------------------------------------------------------- navigation
+function step(delta) {
+  const vis = visibleWatches();
+  if (!vis.length) return;
+  const i = vis.indexOf(focused);
+  focused = vis[Math.min(Math.max((i === -1 ? 0 : i) + delta, 0), vis.length - 1)];
+  render();
+  document.querySelector(".rt.focus")?.scrollIntoView({ block: "nearest" });
+}
+
+$("routes").addEventListener("click", (e) => {
+  const li = e.target.closest(".rt");
+  if (!li) return;
+  const w = doc.watches.find(x => uidOf(x) === li.dataset.uid);
+  if (!w) return;
+  if (e.target.dataset.act === "sel") {
+    e.target.checked ? selected.add(w) : selected.delete(w);
+    renderSidebar();
+    return;
+  }
+  focused = w;
+  render();
+});
+
+$("filter").addEventListener("input", (e) => { query = e.target.value; renderSidebar(); });
+$("filter-clear").onclick = () => { query = ""; $("filter").value = ""; renderSidebar(); $("filter").focus(); };
+$("scope").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-scope]");
+  if (b) { scope = b.dataset.scope; renderSidebar(); }
+});
+
+// ---------------------------------------------------------------- toolbar
+function uniqueId(base) {
+  const taken = new Set(doc.watches.map(w => w.id));
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
+}
+
+// New routes inherit the shared settings (passengers/cabin/currency/notify)
+// from the first existing route, so ⚙ Settings only needs setting once.
+function blankWatch() {
+  const src = doc?.watches?.[0] || {};
+  const passengers = src.passengers || {};
+  const market = src.market || {};
+  const notify = src.notify || {};
+  return {
+    id: uniqueId("new-route"), enabled: true, label: "New route",
+    origin: src.origin || "BNE", destination: "TYO",
+    _destination_note: NOTES.destination,
+    window: { mode: "rolling", _mode_note: NOTES.window_mode,
+      days_from_now_min: 90, days_from_now_max: 290, step_days: 5,
+      _step_note: NOTES.step, start_date: null, end_date: null },
+    trip_length_days: { min: 10, max: 14 },
+    passengers: { adults: passengers.adults ?? 1 },
+    travel_class: src.travel_class ?? 1, stops: src.stops ?? 0,
+    _stops_note: NOTES.stops,
+    currency: src.currency ?? "AUD",
+    market: { gl: market.gl ?? "au", hl: market.hl ?? "en" },
+    deal_rules: { alert_on_price_level: ["low"], _level_note: NOTES.level },
+    notify: { email: notify.email ?? true, cooldown_hours: notify.cooldown_hours ?? null, _cooldown_note: NOTES.cooldown,
+      renotify_on_drop_pct: notify.renotify_on_drop_pct ?? 5, _renotify_note: NOTES.renotify }
+  };
+}
+
+$("btn-add").onclick = () => {
+  if (!doc) doc = { _comment: "One object per route you want watched.",
+                    _budget: { monthly_search_cap: +$("s-cap").value || 240 }, watches: [] };
+  const w = blankWatch();
+  doc.watches.push(w);
+  focused = w; tab = 0; query = ""; $("filter").value = ""; scope = "all";
+  markDirty(); render();
+  $("detail").querySelector('[data-k="label"]')?.select();
+};
+
+$("btn-dup").onclick = () => {
+  const copies = [...selected].map(w => {
+    const c = structuredClone(w);
+    c.id = uniqueId(c.id.replace(/-\d+$/, ""));
+    c.label = c.label + " (copy)";
+    return c;
+  });
+  doc.watches.push(...copies);
+  selected.clear();
+  focused = copies.at(-1) || focused;
+  markDirty(); render();
+  toast(`Duplicated ${copies.length} route${copies.length === 1 ? "" : "s"}`);
+};
+
+const setEnabled = (val) => () => {
+  const n = selected.size;
+  selected.forEach(w => { w.enabled = val; });
+  markDirty(); render();
+  toast(`${val ? "Enabled" : "Paused"} ${n} route${n === 1 ? "" : "s"}`);
+};
+$("btn-enable").onclick = setEnabled(true);
+$("btn-disable").onclick = setEnabled(false);
+$("btn-clearsel").onclick = () => { selected.clear(); renderSidebar(); };
+
+$("btn-del").onclick = () => {
+  const names = [...selected].map(w => w.label || w.id);
+  if (!confirm(`Delete ${names.length} route(s)?\n\n${names.join("\n")}`)) return;
+  doc.watches = doc.watches.filter(w => !selected.has(w));
+  selected.clear();
+  markDirty(); render();
+};
+
+$("s-cap").addEventListener("input", () => {
+  if (doc) { (doc._budget ??= {}).monthly_search_cap = +$("s-cap").value || 0; markDirty(); }
+  refreshBudget();
+});
+
+// ---------------------------------------------------------------- file I/O
+const HAS_FS = "showOpenFilePicker" in window;
+const serialize = () => JSON.stringify(doc, null, 2) + "\n";
+
+function loadJSON(text) {
+  const parsed = JSON.parse(text);
+  if (!parsed || !Array.isArray(parsed.watches)) throw new Error('Expected an object with a "watches" array.');
+  doc = parsed;
+  selected.clear();
+  focused = doc.watches[0] || null;
+  tab = 0; query = ""; scope = "all";
+  $("filter").value = "";
+  $("s-cap").value = doc._budget?.monthly_search_cap ?? 240;
+  dirty = false;
+  $("h1").className = "";
+  render();
+}
+
+$("btn-open").onclick = async () => {
+  if (HAS_FS) {
+    try {
+      [handle] = await window.showOpenFilePicker({
+        types: [{ description: "Watchlist", accept: { "application/json": [".json"] } }]
+      });
+      loadJSON(await (await handle.getFile()).text());
+      toast("Loaded — Ctrl+S writes straight back to the file");
+    } catch (err) {
+      if (err.name !== "AbortError") toast(err.message, true);
+    }
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = ".json,application/json";
+  input.onchange = async () => {
+    try { loadJSON(await input.files[0].text());
+      toast("Loaded — this browser can't write back, so Save downloads a copy"); }
+    catch (err) { toast(err.message, true); }
+  };
+  input.click();
+};
+
+function download() {
+  const blob = new Blob([serialize()], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "watches.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+$("btn-save").onclick = async () => {
+  const bad = (doc?.watches || []).find(w => issuesFor(w, doc.watches).length);
+  if (bad) {
+    focused = bad; render();
+    document.querySelector(".rt.focus")?.scrollIntoView({ block: "nearest" });
+    toast(`“${bad.label || bad.id}” has problems — fix them first`, true);
+    return;
+  }
+  if (handle) {
+    try {
+      const w = await handle.createWritable();
+      await w.write(serialize());
+      await w.close();
+      dirty = false; $("btn-save").disabled = true; $("h1").className = "";
+      toast("Saved to watches.json");
+    } catch (err) { toast("Save failed: " + err.message, true); }
+  } else {
+    download();
+    toast("Downloaded — move it into the project folder, replacing watches.json");
+  }
+};
+
+// ---------------------------------------------------------------- dialogs
+$("btn-json").onclick = () => { $("dlg-text").value = doc ? serialize() : ""; $("dlg").showModal(); };
+$("dlg-close").onclick = () => $("dlg").close();
+$("dlg-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("dlg-text").value); toast("Copied"); }
+  catch { $("dlg-text").select(); document.execCommand("copy"); toast("Copied"); }
+};
+$("dlg-download").onclick = () => { if (doc) download(); };
+$("dlg-apply").onclick = () => {
+  try { loadJSON($("dlg-text").value); dirty = true; $("h1").className = "dirty";
+    $("dlg").close(); toast("Loaded from text — press Save to write it out"); }
+  catch (err) { toast("Invalid JSON: " + err.message, true); }
+};
+$("btn-help").onclick = () => $("help").showModal();
+$("help-close").onclick = () => $("help").close();
+
+// ---------------------------------------------------------------- settings (shared across routes)
+$("g-class").innerHTML = Object.entries(CLASSES).map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+$("g-stops").innerHTML = Object.entries(STOPS).map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+$("g-currency").innerHTML = CURRENCIES.map(c => `<option>${c}</option>`).join("");
+
+$("btn-settings").onclick = () => {
+  const src = doc?.watches?.[0] || {};
+  const passengers = src.passengers || {};
+  const market = src.market || {};
+  const notify = src.notify || {};
+  $("g-adults").value = passengers.adults ?? 1;
+  $("g-class").value = src.travel_class ?? 1;
+  $("g-stops").value = src.stops ?? 0;
+  $("g-currency").value = src.currency ?? "AUD";
+  $("g-gl").value = market.gl ?? "au";
+  $("g-hl").value = market.hl ?? "en";
+  $("g-email").checked = notify.email !== false;
+  $("g-cooldown").value = notify.cooldown_hours ?? "";
+  $("g-renotify").value = notify.renotify_on_drop_pct ?? 5;
+  $("settings").showModal();
+};
+$("settings-close").onclick = () => $("settings").close();
+$("settings-apply").onclick = () => {
+  if (!doc?.watches?.length) { toast("Add a route first", true); $("settings").close(); return; }
+  const gl = $("g-gl").value.trim() || "au";
+  const hl = $("g-hl").value.trim() || "en";
+  doc.watches.forEach(w => {
+    (w.passengers ??= {}).adults = +$("g-adults").value || 1;
+    w.travel_class = +$("g-class").value;
+    w.stops = +$("g-stops").value;
+    w.currency = $("g-currency").value;
+    (w.market ??= {}).gl = gl;
+    w.market.hl = hl;
+    (w.notify ??= {}).email = $("g-email").checked;
+    // Blank means "never re-alert on time alone" - config.py reads null that way.
+    w.notify.cooldown_hours = $("g-cooldown").value.trim() === "" ? null : +$("g-cooldown").value;
+    w.notify.renotify_on_drop_pct = +$("g-renotify").value || 0;
+  });
+  markDirty(); render();
+  $("settings").close();
+  toast(`Applied to ${doc.watches.length} route${doc.watches.length === 1 ? "" : "s"}`);
+};
+
+$("btn-theme").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const next = cur === "dark" ? "light" : cur === "light" ? null : "dark";
+  next ? document.documentElement.setAttribute("data-theme", next)
+       : document.documentElement.removeAttribute("data-theme");
+};
+
+// ---------------------------------------------------------------- keyboard
+document.addEventListener("keydown", (e) => {
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+    e.preventDefault(); if (!$("btn-save").disabled) $("btn-save").click(); return;
+  }
+  if (e.key === "Escape") {
+    if (document.querySelector("dialog[open]")) return;
+    if (selected.size) { selected.clear(); renderSidebar(); }
+    else if (query) { query = ""; $("filter").value = ""; renderSidebar(); }
+    return;
+  }
+  if (e.key === "/" && !typing) { e.preventDefault(); $("filter").focus(); return; }
+  if (typing && e.target.id !== "filter") return;
+
+  if (e.key === "ArrowDown") { e.preventDefault(); step(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); step(-1); }
+  else if (!typing && e.key === " " && focused) {
+    e.preventDefault();
+    selected.has(focused) ? selected.delete(focused) : selected.add(focused);
+    renderSidebar();
+  } else if (!typing && /^[1-2]$/.test(e.key) && focused) {
+    tab = +e.key - 1; renderDetail();
+  }
+});
+
+window.addEventListener("beforeunload", (e) => { if (dirty) e.preventDefault(); });
+
+$("s-cap").value = 240;
+if (!HAS_FS) {
+  $("btn-save").title = "This browser can't write files directly — Save downloads a copy (Chrome/Edge can write in place)";
+}
+render();
+</script>
+</body>
+</html>

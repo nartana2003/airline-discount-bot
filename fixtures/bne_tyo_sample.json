@@ -1,0 +1,130 @@
+{
+  "_fixture_note": "DEMO DATA - invented prices, not real quotes. Used by --demo so the pipeline runs without an API key. Never emailed; see cli.py.",
+  "search_metadata": {
+    "id": "demo-fixture",
+    "status": "Success",
+    "google_flights_url": "https://www.google.com/travel/flights?q=DEMO%20DATA%20-%20not%20a%20real%20search"
+  },
+  "search_parameters": {
+    "engine": "google_flights",
+    "departure_id": "BNE",
+    "arrival_id": "NRT",
+    "type": "1",
+    "currency": "AUD",
+    "gl": "au",
+    "hl": "en"
+  },
+  "price_insights": {
+    "lowest_price": 985,
+    "price_level": "typical",
+    "typical_price_range": [
+      910,
+      1420
+    ],
+    "price_history": [
+      [
+        1750000000,
+        1180
+      ],
+      [
+        1752592000,
+        1240
+      ],
+      [
+        1755184000,
+        1075
+      ],
+      [
+        1757776000,
+        985
+      ]
+    ]
+  },
+  "best_flights": [
+    {
+      "price": 985,
+      "type": "Round trip",
+      "total_duration": 585,
+      "flights": [
+        {
+          "airline": "Jetstar",
+          "flight_number": "JQ 11",
+          "airplane": "Boeing 787",
+          "travel_class": "Economy",
+          "departure_airport": {
+            "id": "BNE",
+            "name": "Brisbane Airport",
+            "time": "2027-01-03 09:10"
+          },
+          "arrival_airport": {
+            "id": "NRT",
+            "name": "Tokyo Narita",
+            "time": "2027-01-03 17:55"
+          },
+          "duration": 585
+        }
+      ]
+    },
+    {
+      "price": 1120,
+      "type": "Round trip",
+      "total_duration": 640,
+      "flights": [
+        {
+          "airline": "Qantas",
+          "flight_number": "QF 61",
+          "airplane": "Airbus A330",
+          "travel_class": "Economy",
+          "departure_airport": {
+            "id": "BNE",
+            "name": "Brisbane Airport",
+            "time": "2027-01-04 11:20"
+          },
+          "arrival_airport": {
+            "id": "HND",
+            "name": "Tokyo Haneda",
+            "time": "2027-01-04 20:00"
+          },
+          "duration": 640
+        }
+      ]
+    }
+  ],
+  "other_flights": [
+    {
+      "price": 1265,
+      "type": "Round trip",
+      "total_duration": 890,
+      "flights": [
+        {
+          "airline": "Singapore Airlines",
+          "flight_number": "SQ 256",
+          "travel_class": "Economy",
+          "departure_airport": {
+            "id": "BNE",
+            "name": "Brisbane Airport"
+          },
+          "arrival_airport": {
+            "id": "SIN",
+            "name": "Singapore Changi"
+          },
+          "duration": 460
+        },
+        {
+          "airline": "Singapore Airlines",
+          "flight_number": "SQ 634",
+          "travel_class": "Economy",
+          "departure_airport": {
+            "id": "SIN",
+            "name": "Singapore Changi"
+          },
+          "arrival_airport": {
+            "id": "HND",
+            "name": "Tokyo Haneda"
+          },
+          "duration": 430
+        }
+      ]
+    }
+  ]
+}
