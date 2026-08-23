@@ -248,9 +248,10 @@ let AIRPORTS = [];
 let BY_CODE = new Map();
 let INDEX = [];   // AIRPORTS with accent-folded fields cached for searching
 
-// "Malé" must match "male", "São Paulo" must match "sao paulo". Folded once at
-// load rather than per keystroke - 4000 airports x 4 fields adds up.
-const fold = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+// Combining diacritical marks U+0300-U+036F, written as escapes on purpose:
+// as literal marks they are invisible in an editor and a stray normalisation
+// would silently break accent folding.
+const fold = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 // Region and island names that appear in no field of the dataset. Most former
 // aliases are gone: the data now carries its own keywords, so "bali" finds
