@@ -4,270 +4,292 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flight Watch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Work+Sans:wght@400;500;600&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #f5f6f8;
-  --card: #ffffff;
-  --field: #ffffff;
-  --ink: #14161b;
-  --ink-2: #565e6c;
-  --ink-3: #8a919f;
-  --line: #e5e8ee;
-  --line-2: #d3d8e0;
-  --accent: #2f6df6;
-  --accent-soft: #edf3ff;
-  --good: #0f7a45;
-  --good-bg: #e6f6ed;
-  --warn: #8a5a00;
-  --warn-bg: #fdf3e0;
-  --bad: #c02626;
-  --bad-bg: #fdeded;
-  --shadow-sm: 0 1px 2px rgba(20,22,27,.06);
-  --shadow: 0 1px 3px rgba(20,22,27,.07), 0 8px 24px -8px rgba(20,22,27,.10);
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --paper: #f2ede3;
+  --card: #fbf8f2;
+  --field: #fffdf9;
+  --ink: #221e18;
+  --ink-2: #6b6357;
+  --ink-3: #9a9184;
+  --line: #e0d8c9;
+  --line-2: #cec4b1;
+  --stamp: #9c3226;
+  --stamp-soft: #f6e7e3;
+  --ok: #3f6b3a;
+  --ok-soft: #e9f0e5;
+  --warn: #8a5a12;
+  --warn-soft: #f6eddc;
+  --serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --sans: "Work Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Roboto Mono", ui-monospace, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0c0e12; --card: #16191f; --field: #1c2029;
-    --ink: #eceef2; --ink-2: #a7aeba; --ink-3: #737b88;
-    --line: #242932; --line-2: #323945;
-    --accent: #6f9bff; --accent-soft: #18233a;
-    --good: #4ecf92; --good-bg: #122d1f;
-    --warn: #e8b661; --warn-bg: #2e2513;
-    --bad: #ff8b86; --bad-bg: #331a1a;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
-    --shadow: 0 1px 3px rgba(0,0,0,.5), 0 10px 28px -10px rgba(0,0,0,.6);
+    --paper: #14120f; --card: #1c1916; --field: #221e1a;
+    --ink: #ece5d8; --ink-2: #a89e8e; --ink-3: #7b7264;
+    --line: #2b2721; --line-2: #3d3830;
+    --stamp: #e0705f; --stamp-soft: #331d19;
+    --ok: #7fb877; --ok-soft: #1b2a19;
+    --warn: #d99b45; --warn-soft: #2e2314;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0c0e12; --card: #16191f; --field: #1c2029;
-  --ink: #eceef2; --ink-2: #a7aeba; --ink-3: #737b88;
-  --line: #242932; --line-2: #323945;
-  --accent: #6f9bff; --accent-soft: #18233a;
-  --good: #4ecf92; --good-bg: #122d1f;
-  --warn: #e8b661; --warn-bg: #2e2513;
-  --bad: #ff8b86; --bad-bg: #331a1a;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
-  --shadow: 0 1px 3px rgba(0,0,0,.5), 0 10px 28px -10px rgba(0,0,0,.6);
+  --paper: #14120f; --card: #1c1916; --field: #221e1a;
+  --ink: #ece5d8; --ink-2: #a89e8e; --ink-3: #7b7264;
+  --line: #2b2721; --line-2: #3d3830;
+  --stamp: #e0705f; --stamp-soft: #331d19;
+  --ok: #7fb877; --ok-soft: #1b2a19;
+  --warn: #d99b45; --warn-soft: #2e2314;
 }
 
 * { box-sizing: border-box; }
 body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased;
 }
-.wrap { max-width: 720px; margin: 0 auto; padding: 40px 22px 96px; }
+.wrap { max-width: 720px; margin: 0 auto; padding: 52px 24px 90px; }
 .spacer { flex: 1 1 auto; }
 
-/* ---------- header ---------- */
-.title-row { display: flex; align-items: center; gap: 11px; margin-bottom: 22px; }
-.mark {
-  width: 30px; height: 30px; border-radius: 9px; flex: none;
-  background: linear-gradient(145deg, var(--accent), #6f9bff);
-  display: grid; place-items: center; color: #fff; font-size: 15px;
-  box-shadow: 0 2px 8px -2px var(--accent);
+/* ---------- masthead ---------- */
+.mast {
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  border-bottom: 2px solid var(--ink); padding-bottom: 14px; margin-bottom: 32px;
 }
-h1 { font-size: 19px; margin: 0; letter-spacing: -.021em; font-weight: 640; }
-
+h1 { font: 400 34px/1 var(--serif); margin: 0; letter-spacing: -.015em; }
+h1 em { font-style: italic; }
+.when {
+  font: 500 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3); padding-bottom: 4px;
+}
 .save-pill {
-  font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px;
-  background: var(--card); color: var(--ink-3); border: 1px solid var(--line);
-  box-shadow: var(--shadow-sm); white-space: nowrap;
-  transition: color .15s, background .15s, border-color .15s;
+  font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); background: transparent; border: 1px solid var(--line-2);
+  padding: 6px 10px; border-radius: 2px; white-space: nowrap;
+  transition: color .18s, background .18s, border-color .18s;
 }
 .save-pill.saving { color: var(--ink-2); }
-.save-pill.saved  { background: var(--good-bg); color: var(--good); border-color: transparent; }
-.save-pill.error  { background: var(--bad-bg);  color: var(--bad);  border-color: transparent; }
-
+.save-pill.saved  { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.save-pill.error  { color: var(--stamp); background: var(--stamp-soft); border-color: transparent; }
 .icon-btn {
-  font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
-  background: var(--card); border: 1px solid var(--line); color: var(--ink-3);
-  border-radius: 9px; padding: 7px 9px; box-shadow: var(--shadow-sm);
+  border: 1px solid var(--line-2); background: transparent; color: var(--ink-3);
+  width: 32px; height: 28px; cursor: pointer; border-radius: 2px;
+  display: grid; place-items: center; padding: 0;
 }
-.icon-btn:hover { color: var(--ink); border-color: var(--line-2); }
+.icon-btn:hover { color: var(--ink); border-color: var(--ink-2); }
 
-/* ---------- budget panel ---------- */
+/* ---------- budget docket ---------- */
 .budget {
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-  padding: 18px 20px 16px; box-shadow: var(--shadow); margin-bottom: 26px;
+  border: 1px solid var(--line-2); background: var(--card); border-radius: 2px;
+  padding: 20px 22px; margin-bottom: 34px; position: relative; overflow: hidden;
 }
-.stats { display: flex; gap: 8px; align-items: flex-start; }
-.stat { flex: 1 1 0; min-width: 0; }
-.stat .n {
-  font-size: 25px; font-weight: 660; letter-spacing: -.025em;
-  font-variant-numeric: tabular-nums; line-height: 1.1; display: block;
+.figs { display: flex; gap: 34px; flex-wrap: wrap; }
+.fig .n {
+  font: 400 32px/1 var(--serif); font-variant-numeric: tabular-nums; letter-spacing: -.02em;
 }
-.stat .l {
-  font-size: 11px; color: var(--ink-3); margin-top: 3px; display: block;
-  text-transform: uppercase; letter-spacing: .055em; font-weight: 600;
+.fig .n .of { font-size: 17px; color: var(--ink-3); }
+.fig .n.warn { color: var(--warn); }
+.fig .n.over { color: var(--stamp); }
+.fig .l {
+  font: 500 10px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-3); margin-top: 7px;
 }
-.stat .n.ok { color: var(--good); }
-.stat .n.warn { color: var(--warn); }
-.stat .n.over { color: var(--bad); }
-.stat-div { width: 1px; align-self: stretch; background: var(--line); flex: none; margin: 2px 4px; }
-
-.bar { height: 5px; border-radius: 99px; background: var(--line); margin-top: 16px; overflow: hidden; }
-.bar i {
-  display: block; height: 100%; border-radius: 99px; background: var(--good);
-  transition: width .35s cubic-bezier(.4,0,.2,1), background .3s;
+.stamp {
+  position: absolute; right: -34px; top: 16px; transform: rotate(28deg);
+  border: 2px solid var(--stamp); color: var(--stamp); opacity: .3;
+  font: 700 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  padding: 6px 40px; border-radius: 2px; pointer-events: none;
 }
-.bar.warn i { background: var(--warn); }
-.bar.over i { background: var(--bad); }
-.budget-note { font-size: 12px; color: var(--ink-3); margin-top: 9px; line-height: 1.45; }
-
-/* ---------- section label ---------- */
-.sec {
-  display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px 2px;
-  font-size: 11px; font-weight: 700; letter-spacing: .07em;
-  text-transform: uppercase; color: var(--ink-3);
+.strip { display: flex; gap: 3px; margin-top: 18px; }
+.strip i { height: 8px; flex: 1 1 0; background: var(--line); }
+.strip i.on { background: var(--stamp); opacity: .7; }
+.strip.ok i.on { background: var(--ok); opacity: .55; }
+.strip.warn i.on { background: var(--warn); opacity: .6; }
+.budget-note {
+  font: 400 12.5px/1.5 var(--sans); color: var(--stamp); margin-top: 14px;
 }
 
-/* ---------- route cards ---------- */
-.routes { display: flex; flex-direction: column; gap: 10px; }
+/* ---------- section rule ---------- */
+.sec { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.sec h2 {
+  font: 500 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--ink-2); margin: 0;
+}
+.sec .rule { flex: 1 1 auto; height: 1px; background: var(--line-2); }
+
+/* ---------- the ticket ---------- */
+.routes { display: flex; flex-direction: column; gap: 12px; }
 .card {
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-  padding: 15px 16px 13px; box-shadow: var(--shadow);
+  display: flex; background: var(--card);
+  border: 1px solid var(--line-2); border-radius: 3px;
   transition: opacity .18s, border-color .18s;
 }
-.card.off { opacity: .5; }
-.card.bad { border-color: var(--bad); }
-.card-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.airports { display: flex; align-items: center; gap: 7px; flex: 1 1 300px; min-width: 0; }
-.arrow { color: var(--ink-3); font-size: 15px; flex: none; }
+.card.off { opacity: .55; }
+.card.bad { border-color: var(--stamp); }
+.stub { flex: 1 1 auto; padding: 22px 24px; min-width: 0; }
+.route { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
 
-input[type=text], input[type=number] {
-  font: inherit; color: var(--ink); background: var(--field);
-  border: 1px solid var(--line-2); border-radius: 9px; padding: 9px 11px;
-  transition: border-color .15s, box-shadow .15s;
+/* airport field: printed code above, searchable city beneath */
+.ap { position: relative; min-width: 0; flex: 1 1 150px; }
+.ap .code {
+  font: 700 30px/1 var(--mono); letter-spacing: .02em; color: var(--ink);
+  min-height: 30px; display: block;
 }
-input:focus {
-  outline: none; border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+.ap.bad .code { color: var(--stamp); }
+.ap .code.empty { color: var(--ink-3); }
+.ap input {
+  font: 400 14px/1.35 var(--serif); color: var(--ink-2); margin-top: 8px;
+  width: 100%; border: 0; border-bottom: 1px dashed var(--line-2);
+  background: transparent; padding: 0 0 4px; border-radius: 0;
 }
-input::placeholder { color: var(--ink-3); }
-
-/* ---------- airport picker ---------- */
-.ap { position: relative; flex: 1 1 0; min-width: 0; }
-.ap input { width: 100%; padding-right: 50px; text-overflow: ellipsis; font-weight: 550; }
-.ap .badge {
-  position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
-  font: 650 10.5px var(--mono); letter-spacing: .07em; pointer-events: none;
-  background: var(--accent-soft); color: var(--accent);
-  border-radius: 5px; padding: 3px 6px;
+.ap input:focus {
+  outline: none; color: var(--ink); border-bottom-color: var(--stamp);
+  border-bottom-style: solid;
 }
-.ap.bad input { border-color: var(--bad); }
-.ap.bad .badge { background: var(--bad-bg); color: var(--bad); }
+.ap input::placeholder { color: var(--ink-3); font-style: italic; }
+.ap.bad input { border-bottom-color: var(--stamp); }
 
 .ap-list {
-  position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0;
-  background: var(--card); border: 1px solid var(--line-2); border-radius: 12px;
-  box-shadow: 0 12px 32px -8px rgba(20,22,27,.28); overflow: hidden auto;
-  max-height: 272px; display: none; padding: 4px;
+  position: absolute; z-index: 40; top: calc(100% + 8px); left: 0;
+  min-width: 260px; max-width: 340px;
+  background: var(--card); border: 1px solid var(--line-2); border-radius: 3px;
+  box-shadow: 0 14px 34px -12px rgba(34,30,24,.4); overflow: hidden auto;
+  max-height: 280px; display: none; padding: 4px;
 }
 .ap-list.open { display: block; }
 .ap-opt {
-  display: flex; align-items: center; gap: 10px; padding: 8px 9px;
-  cursor: pointer; border-radius: 8px;
+  display: flex; align-items: center; gap: 11px; padding: 8px 9px;
+  cursor: pointer; border-radius: 2px;
 }
-.ap-opt.on { background: var(--accent-soft); }
+.ap-opt.on { background: var(--stamp-soft); }
 .ap-opt .c {
-  font: 650 10.5px var(--mono); letter-spacing: .07em; color: var(--accent);
-  background: var(--accent-soft); border-radius: 5px; padding: 4px 5px;
-  flex: none; width: 38px; text-align: center;
+  font: 700 11px/1 var(--mono); letter-spacing: .08em; color: var(--stamp);
+  border: 1px dashed var(--line-2); padding: 5px 6px; border-radius: 2px;
+  flex: none; width: 42px; text-align: center;
 }
-.ap-opt.on .c { background: var(--card); }
 .ap-opt .t { min-width: 0; flex: 1; }
 .ap-opt .p {
-  font-size: 13.5px; font-weight: 600; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
-}
-.ap-opt .s {
-  font-size: 11.5px; color: var(--ink-3); margin-top: 1px;
+  font: 500 13.5px/1.3 var(--sans); color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ap-none { padding: 16px 12px; font-size: 13px; color: var(--ink-3); text-align: center; }
+.ap-opt .s {
+  font: 400 12px/1.3 var(--serif); color: var(--ink-3); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ap-none {
+  padding: 16px 12px; font: 400 13px var(--serif); font-style: italic;
+  color: var(--ink-3); text-align: center;
+}
 
-/* ---------- trip length, toggle, delete ---------- */
-.trip-wrap { display: flex; align-items: center; gap: 7px; flex: none; padding-left: 2px; }
-.trip { width: 56px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
-.unit { font-size: 13px; color: var(--ink-2); }
+/* trip length, centred between the two ports */
+.mid { flex: none; padding-top: 4px; text-align: center; width: 100px; }
+.mid .trip {
+  width: 56px; text-align: center; font: 700 17px/1 var(--mono); color: var(--ink);
+  background: var(--field); border: 1px dashed var(--line-2); border-radius: 2px;
+  padding: 7px 4px; font-variant-numeric: tabular-nums;
+}
+.mid .trip:focus { outline: none; border-color: var(--stamp); border-style: solid; }
+.mid .trip.bad { border-color: var(--stamp); border-style: solid; }
+.mid .u {
+  display: block; font: 500 10px/1 var(--mono); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--ink-3); margin-top: 7px;
+}
+.mid svg { display: block; margin: 8px auto 0; }
 
-.toggle { position: relative; width: 38px; height: 22px; flex: none; cursor: pointer; }
-.toggle input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+/* the sampling legend */
+.legend {
+  display: flex; gap: 26px; margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid var(--line); flex-wrap: wrap;
+}
+.legend .k {
+  font: 500 9.5px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.legend .v {
+  font: 400 14px/1.3 var(--serif); color: var(--ink); margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.card-err {
+  margin-top: 16px; padding: 10px 13px; border-radius: 2px;
+  background: var(--stamp-soft); color: var(--stamp);
+  font: 400 13px/1.45 var(--sans);
+}
+
+/* perforated stub */
+.perf {
+  flex: none; width: 112px; border-left: 2px dashed var(--line-2);
+  padding: 22px 16px; display: flex; flex-direction: column;
+  align-items: center; justify-content: space-between; gap: 14px;
+}
+.perf .lab {
+  font: 500 9.5px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-3); text-align: center;
+}
+.toggle { position: relative; width: 42px; height: 24px; cursor: pointer; }
+.toggle input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .toggle span {
   position: absolute; inset: 0; border-radius: 99px; background: var(--line-2);
   transition: background .2s; pointer-events: none;
 }
 .toggle span::after {
-  content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; top: 2px; left: 2px; transition: transform .2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  content: ""; position: absolute; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--card); top: 2px; left: 2px; transition: transform .2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,.22);
 }
-.toggle input:checked + span { background: var(--good); }
-.toggle input:checked + span::after { transform: translateX(16px); }
-.toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-
+.toggle input:checked + span { background: var(--ok); }
+.toggle input:checked + span::after { transform: translateX(18px); }
+.toggle input:focus-visible + span { outline: 2px solid var(--stamp); outline-offset: 2px; }
 .del {
-  font: inherit; font-size: 16px; line-height: 1; cursor: pointer; padding: 6px 8px;
-  background: transparent; border: 1px solid transparent; border-radius: 8px;
-  color: var(--ink-3); flex: none;
+  border: 0; background: transparent; color: var(--ink-3); cursor: pointer;
+  font: 400 11px var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  padding: 5px 7px; border-radius: 2px;
 }
-.del:hover { background: var(--bad-bg); color: var(--bad); }
-
-.card-foot {
-  margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line);
-  font-size: 11.5px; color: var(--ink-3); display: flex; gap: 5px; flex-wrap: wrap;
-  align-items: baseline;
-}
-.card-foot b { color: var(--ink-2); font-weight: 650; font-variant-numeric: tabular-nums; }
-.card-foot .sep { opacity: .45; }
-.card-err {
-  margin-top: 11px; font-size: 12.5px; color: var(--bad);
-  background: var(--bad-bg); border-radius: 8px; padding: 8px 11px;
-}
+.del:hover { color: var(--stamp); background: var(--stamp-soft); }
 
 /* ---------- add / empty ---------- */
 .add {
-  font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; width: 100%;
-  padding: 14px; margin-top: 10px; color: var(--ink-2);
-  background: transparent; border: 1.5px dashed var(--line-2); border-radius: 14px;
-  transition: color .15s, border-color .15s, background .15s;
+  width: 100%; padding: 16px; margin-top: 12px; cursor: pointer;
+  background: transparent; border: 1px dashed var(--line-2); border-radius: 3px;
+  font: 400 16px/1 var(--serif); color: var(--ink-2);
 }
-.add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-
+.add:hover { border-color: var(--ink); color: var(--ink); border-style: solid; }
 .empty {
-  text-align: center; padding: 44px 24px; color: var(--ink-3);
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-  box-shadow: var(--shadow);
+  text-align: center; padding: 46px 24px; background: var(--card);
+  border: 1px solid var(--line-2); border-radius: 3px; color: var(--ink-3);
 }
-.empty strong { color: var(--ink); display: block; margin-bottom: 4px; font-size: 15px; }
+.empty strong {
+  display: block; font: 400 20px/1 var(--serif); color: var(--ink); margin-bottom: 7px;
+}
 .empty p { margin: 0; font-size: 13.5px; }
 
-/* ---------- footer ---------- */
-.foot-note {
-  margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line);
-  font-size: 12px; color: var(--ink-3); line-height: 1.6;
-}
-/* Otherwise the border-top draws a stray rule under the page when empty. */
+/* ---------- misc ---------- */
+.foot-note { margin: 0; }
 .foot-note:empty { display: none; }
-.foot-note b { color: var(--ink-2); font-weight: 600; }
 code {
-  font: 11.5px var(--mono); background: var(--bg); color: var(--ink-2);
-  border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
+  font: 11.5px var(--mono); background: var(--paper); color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: 2px; padding: 1px 5px;
 }
 .banner {
-  background: var(--bad-bg); color: var(--bad); border-radius: 12px;
-  padding: 13px 16px; margin-bottom: 18px; font-size: 13.5px; line-height: 1.55;
+  background: var(--stamp-soft); color: var(--stamp); border-radius: 3px;
+  padding: 14px 16px; margin-bottom: 20px; font-size: 13.5px; line-height: 1.55;
+  border: 1px solid var(--stamp);
 }
 .banner code { background: transparent; border-color: currentColor; color: inherit; }
 .banner a { color: inherit; }
 
-@media (max-width: 560px) {
-  .wrap { padding: 26px 15px 70px; }
-  .stat .n { font-size: 21px; }
-  .airports { flex: 1 1 100%; }
-  .trip-wrap { margin-left: auto; }
+@media (max-width: 620px) {
+  .wrap { padding: 30px 16px 70px; }
+  h1 { font-size: 27px; }
+  .card { flex-direction: column; }
+  .perf {
+    width: auto; border-left: 0; border-top: 2px dashed var(--line-2);
+    flex-direction: row; padding: 14px 20px;
+  }
+  .mid { width: auto; }
+  .figs { gap: 22px; }
 }
 </style>
 </head>
@@ -275,20 +297,25 @@ code {
 <div class="wrap">
 
   <header>
-    <div class="title-row">
-      <span class="mark" aria-hidden="true">✈</span>
-      <h1>Flight Watch</h1>
+    <div class="mast">
+      <h1>Flight <em>Watch</em></h1>
       <span class="spacer"></span>
+      <span class="when" id="cadence"></span>
       <span class="save-pill" id="pill">Loading…</span>
-      <button class="icon-btn" id="theme" title="Toggle theme">◐</button>
+      <button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="8"/>
+          <path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
     </div>
     <div class="budget" id="budget"></div>
   </header>
 
   <div id="banner"></div>
-  <div class="sec" id="sec-label">Routes</div>
+  <div class="sec"><h2>Routes</h2><span class="rule"></span></div>
   <div class="routes" id="routes"></div>
-  <button class="add" id="add">+ Add route</button>
+  <button class="add" id="add">Add a route</button>
 
   <p class="foot-note" id="footnote"></p>
 </div>
@@ -417,43 +444,51 @@ function renderBudget() {
   const el = $("budget");
   if (!summary) { el.innerHTML = ""; return; }
 
-  const { per_run, per_month, cap, active } = summary;
-  const pct = cap ? Math.min(per_month / cap * 100, 100) : 0;
+  const { per_run, per_month, cap, active, runs_per_month } = summary;
+  const pct = cap ? Math.min(per_month / cap, 1) : 0;
   const over = per_month > cap;
   const near = !over && per_month > cap * 0.85;
   const state = over ? "over" : near ? "warn" : "ok";
 
+  $("cadence").textContent = runs_per_month >= 4
+    ? "Checked weekly" : `Checked ${runs_per_month}× a month`;
+
+  // The strip is a torn-ticket meter: 20 segments, filled to the used share.
+  const SEGS = 20, lit = Math.round(pct * SEGS);
+  const strip = Array.from({ length: SEGS },
+    (_, i) => `<i class="${i < lit ? "on" : ""}"></i>`).join("");
+
   // Numbers carry this; prose only appears when something is actually wrong.
   el.innerHTML = `
-    <div class="stats">
-      <div class="stat">
-        <span class="n">${active}</span>
-        <span class="l">route${active === 1 ? "" : "s"}</span>
+    <div class="stamp">${Math.round(pct * 100)}% used</div>
+    <div class="figs">
+      <div class="fig">
+        <div class="n">${active}</div>
+        <div class="l">route${active === 1 ? "" : "s"}</div>
       </div>
-      <div class="stat-div"></div>
-      <div class="stat">
-        <span class="n">${per_run}</span>
-        <span class="l">per run</span>
+      <div class="fig">
+        <div class="n">${per_run}</div>
+        <div class="l">per run</div>
       </div>
-      <div class="stat-div"></div>
-      <div class="stat">
-        <span class="n ${state}">${per_month.toLocaleString()}</span>
-        <span class="l">of ${cap.toLocaleString()} a month</span>
+      <div class="fig">
+        <div class="n ${state}">${per_month.toLocaleString()}<span class="of"> / ${cap.toLocaleString()}</span></div>
+        <div class="l">searches a month</div>
       </div>
     </div>
-    <div class="bar ${over ? "over" : near ? "warn" : ""}"><i style="width:${pct}%"></i></div>
+    <div class="strip ${state}">${strip}</div>
     ${over ? `<div class="budget-note">Over cap — the bot will refuse to start a run.
                 Pause a route, or raise the cap in watches.json.</div>` : ""}`;
 }
 
-// One airport field: a text box you search in, with the resolved code pinned
-// to the right so it's always visible without being something you have to know.
+// One airport field, printed like a ticket: the resolved code set large above,
+// and beneath it the box you actually type a city into. The code is derived
+// from the selection rather than typed, so it reads as stamped, not editable.
 function picker(key, code, placeholder, badCls) {
   return `<div class="ap${badCls}" data-field="${key}">
+    <span class="code${code ? "" : " empty"}">${esc(code || "———")}</span>
     <input type="text" data-k="${key}" autocomplete="off" spellcheck="false"
            value="${esc(displayFor(code))}" placeholder="${esc(placeholder)}"
            aria-label="${esc(placeholder)}">
-    ${code ? `<span class="badge">${esc(code)}</span>` : ""}
     <div class="ap-list"></div>
   </div>`;
 }
@@ -476,34 +511,50 @@ function renderRoutes() {
     const info = summary?.routes?.[i];
     const bad = (k) => errs.includes(k) ? " bad" : "";
     return `<div class="card ${w.enabled === false ? "off" : ""} ${errs.length ? "bad" : ""}" data-i="${i}">
-      <div class="card-main">
-        <div class="airports">
+      <div class="stub">
+        <div class="route">
           ${picker("origin", w.origin, "From — city or airport", bad("origin"))}
-          <span class="arrow">→</span>
+          <div class="mid">
+            <input type="number" class="trip${bad("trip")}" data-k="trip_days" min="1" max="60"
+                   value="${+w.trip_days || 12}" aria-label="Trip length in days">
+            <span class="u">days</span>
+            <svg width="96" height="26" viewBox="0 0 96 26" fill="none"
+                 stroke="currentColor" stroke-width="1.2" style="color:var(--ink-3)">
+              <path d="M2 8h74" stroke-dasharray="1 4" stroke-linecap="round"/>
+              <path d="M72 5.2 77 8l-5 2.8"/>
+              <path d="M94 18H20" stroke-dasharray="1 4" stroke-linecap="round"/>
+              <path d="M24 15.2 19 18l5 2.8"/>
+            </svg>
+          </div>
           ${picker("destination", w.destination, "To — city or airport",
                    bad("destination") + bad("same"))}
         </div>
-        <div class="trip-wrap">
-          <input type="number" class="trip${bad("trip")}" data-k="trip_days" min="1" max="60"
-                 value="${+w.trip_days || 12}" aria-label="Trip length in days">
-          <span class="unit">days</span>
-        </div>
+        ${errs.length
+          ? `<div class="card-err">${errs.map(e => esc(errorText[e])).join(" ")}</div>`
+          : info && info.searches_per_run
+            ? `<div class="legend" title="One search covers one exact date pair, so a run samples the window rather than covering it. The run itself happens weekly.">
+                 <div>
+                   <div class="k">Sampling</div>
+                   <div class="v">Every ${ordinal(info.step_days)} departure date</div>
+                 </div>
+                 <div>
+                   <div class="k">Window</div>
+                   <div class="v">${win.days_from_now_min}–${win.days_from_now_max} days ahead</div>
+                 </div>
+                 <div>
+                   <div class="k">Covering</div>
+                   <div class="v">${esc(shortDate(info.first_depart))} – ${esc(info.last_depart)}</div>
+                 </div>
+               </div>`
+            : ""}
+      </div>
+      <div class="perf">
+        <div class="lab">${w.enabled === false ? "Paused" : "Watching"}</div>
         <label class="toggle" title="${w.enabled === false ? "Paused" : "Actively watched"}">
           <input type="checkbox" data-k="enabled" ${w.enabled === false ? "" : "checked"}><span></span>
         </label>
-        <button class="del" data-act="del" title="Remove this route">×</button>
+        <button class="del" data-act="del" title="Remove this route">Remove</button>
       </div>
-      ${errs.length
-        ? `<div class="card-err">${errs.map(e => esc(errorText[e])).join(" ")}</div>`
-        : info && info.searches_per_run
-          ? `<div class="card-foot" title="One search covers one exact date pair, so a run samples the window rather than covering it. The run itself happens weekly.">
-               Checks every <b>${ordinal(info.step_days)}</b> departure date
-               <span class="sep">·</span>
-               rolling <b>${win.days_from_now_min}–${win.days_from_now_max}</b> days ahead
-               <span class="sep">·</span>
-               ${esc(shortDate(info.first_depart))} – ${esc(info.last_depart)}
-             </div>`
-          : ""}
     </div>`;
   }).join("");
 }
