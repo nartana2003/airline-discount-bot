@@ -45,8 +45,8 @@
     {
       "enabled": true,
       "origin": "BNE",
-      "destination": "HND",
-      "trip_days": 12
+      "destination": "BOM",
+      "trip_days": 14
     }
   ]
 }
