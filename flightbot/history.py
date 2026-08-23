@@ -32,6 +32,8 @@ def _row(verdict: Verdict, seen_at: str) -> dict:
     """One quote, flattened. Keys stay short and stable - this file is meant
     to still be readable by something written years from now."""
     q = verdict.quote
+    first = q.legs[0] if q.legs else None
+    last = q.legs[-1] if q.legs else None
     return {
         "at": seen_at,
         "watch": q.watch_id,
@@ -46,6 +48,16 @@ def _row(verdict: Verdict, seen_at: str) -> dict:
         "airlines": list(q.airlines),
         "stops": q.stops,
         "deal": verdict.is_deal,
+        # Enough to rebuild a useful line in the monthly digest without
+        # re-querying: the outbound clock times, the flight numbers, and the
+        # Google Flights link for this exact date pair.
+        "dep_time": first.depart_time if first else None,
+        "arr_time": last.arrive_time if last else None,
+        "from_id": first.from_id if first else None,
+        "to_id": last.to_id if last else None,
+        "duration": q.duration_minutes,
+        "flights": [lg.flight_number for lg in q.legs if lg.flight_number],
+        "url": q.booking_url,
     }
 
 

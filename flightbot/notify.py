@@ -300,7 +300,14 @@ def _row(v: Verdict) -> str:
     space, the rest just need to be scannable.
     """
     q = v.quote
-    times = _timeline(v)
+    # Airports are already in the section heading, so the row only needs the
+    # clock - that keeps room for the link, which is the point of the row.
+    legs = q.legs
+    clock = (f"{legs[0].depart_time} → {legs[-1].arrive_time}"
+             if legs and legs[0].depart_time and legs[-1].arrive_time else "")
+    link = (f'<a href="{esc(q.booking_url)}" style="color:{ACCENT};'
+            f'text-decoration:none;font-weight:600;white-space:nowrap">View &rarr;</a>'
+            if q.booking_url else "")
     return (
         f'<tr>'
         f'<td style="padding:9px 12px 9px 0;font-size:15px;font-weight:700;'
@@ -309,9 +316,10 @@ def _row(v: Verdict) -> str:
         f'<td style="padding:9px 12px 9px 0;font-size:13px;color:{INK_2};white-space:nowrap">'
         f'{q.depart_date:%a %d %b} &rarr; {q.return_date:%d %b}</td>'
         f'<td style="padding:9px 12px 9px 0;font-size:12.5px;color:{INK_3};'
-        f'white-space:nowrap;font-variant-numeric:tabular-nums">{esc(times)}</td>'
-        f'<td style="padding:9px 0;font-size:12.5px;color:{INK_3}">'
-        f'{esc(", ".join(q.airlines))}</td>'
+        f'white-space:nowrap;font-variant-numeric:tabular-nums">{esc(clock)}</td>'
+        f'<td style="padding:9px 12px 9px 0;font-size:12.5px;color:{INK_3};'
+        f'white-space:nowrap">{esc(", ".join(q.airlines))}</td>'
+        f'<td style="padding:9px 0;font-size:12.5px;text-align:right">{link}</td>'
         f'</tr>'
     )
 
@@ -442,6 +450,24 @@ def _digest_subject(d: dict) -> str:
     return f"{head} · no fares found"
 
 
+def _row_detail(r: dict) -> str:
+    """"09:30 BNE → 17:40 NRT (9h 10m) · Jetstar JQ9" from a stored row.
+
+    Rows written before these fields existed simply have less to say, so each
+    piece is included only when present rather than assumed.
+    """
+    bits = []
+    if r.get("dep_time") and r.get("arr_time"):
+        leg = f"{r['dep_time']} {r.get('from_id') or ''} → {r['arr_time']} {r.get('to_id') or ''}"
+        dur = _duration(r.get("duration"))
+        bits.append(f"{' '.join(leg.split())}" + (f" ({dur})" if dur else ""))
+    carrier = ", ".join(r.get("airlines") or [])
+    nums = ", ".join(n.replace(" ", "") for n in (r.get("flights") or []))
+    if carrier or nums:
+        bits.append(" ".join(x for x in (carrier, nums) if x))
+    return " · ".join(bits)
+
+
 def _digest_plain(d: dict, quota: str) -> str:
     lines = [
         "Still watching. Nothing here needs your attention.",
@@ -455,6 +481,11 @@ def _digest_plain(d: dict, quota: str) -> str:
         for r in d["routes"]:
             lines.append(f"  {r['watch']}   {r['currency']} {r['price']:,.0f}"
                          f"   {r['depart']} -> {r['ret']}   (Google: {r['level'] or '?'})")
+            detail = _row_detail(r)
+            if detail:
+                lines.append(f"      {detail}")
+            if r.get("url"):
+                lines.append(f"      View: {r['url']}")
     else:
         lines.append("No priced fares were returned at all this period.")
     lines.append("")
@@ -475,23 +506,35 @@ def _digest_plain(d: dict, quota: str) -> str:
 
 
 def _digest_html(d: dict, quota: str) -> str:
-    rows = "".join(
-        f'<tr>'
-        f'<td style="padding:7px 14px 7px 0;font-size:14px;color:{INK};font-weight:600">'
-        f'{esc(r["watch"])}</td>'
-        f'<td style="padding:7px 14px 7px 0;font-size:15px;color:{INK};'
-        f'font-weight:700;white-space:nowrap">{r["currency"]} {r["price"]:,.0f}</td>'
-        f'<td style="padding:7px 14px 7px 0;font-size:13px;color:{INK_2};white-space:nowrap">'
-        f'{esc(r["depart"])} &rarr; {esc(r["ret"])}</td>'
-        f'<td style="padding:7px 0;font-size:12.5px;color:{INK_3}">'
-        f'{esc(r["level"] or "?")}</td>'
-        f'</tr>'
-        for r in d["routes"]
-    )
-    table = (f'<table role="presentation" cellpadding="0" cellspacing="0" '
-             f'style="width:100%;margin:6px 0 0">{rows}</table>') if rows else (
-             f'<div style="font-size:14px;color:{INK_2}">'
-             f'No priced fares were returned at all this period.</div>')
+    blocks = []
+    for r in d["routes"]:
+        detail = _row_detail(r)
+        detail_html = (f'<div style="font-size:12.5px;color:{INK_3};margin-top:4px">'
+                       f'{esc(detail)}</div>' if detail else "")
+        button = (
+            f'<div style="margin-top:10px"><a href="{esc(r["url"])}" '
+            f'style="display:inline-block;padding:7px 14px;border-radius:7px;'
+            f'border:1px solid {LINE};color:{ACCENT};font-size:12.5px;'
+            f'font-weight:600;text-decoration:none">View on Google Flights</a></div>'
+            if r.get("url") else "")
+        blocks.append(
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'style="border:1px solid {LINE};border-radius:8px;background:#ffffff;'
+            f'margin:0 0 10px"><tr><td style="padding:14px 16px">'
+            f'<div style="font-size:12px;color:{INK_3};font-weight:600;'
+            f'letter-spacing:.05em">{esc(r["watch"])}</div>'
+            f'<div style="margin-top:5px">'
+            f'<span style="font-size:19px;font-weight:700;color:{INK}">'
+            f'{r["currency"]} {r["price"]:,.0f}</span>'
+            f'<span style="font-size:13px;color:{INK_2}">&nbsp;&nbsp;'
+            f'{esc(r["depart"])} &rarr; {esc(r["ret"])}</span>'
+            f'<span style="font-size:12px;color:{INK_3}">&nbsp;&nbsp;Google: '
+            f'{esc(r["level"] or "?")}</span></div>'
+            f'{detail_html}{button}</td></tr></table>'
+        )
+    table = "".join(blocks) if blocks else (
+        f'<div style="font-size:14px;color:{INK_2}">'
+        f'No priced fares were returned at all this period.</div>')
 
     verdict = (f'{d["deals"]} fare(s) rated &ldquo;low&rdquo; and were emailed to you.'
                if d["deals"] else
