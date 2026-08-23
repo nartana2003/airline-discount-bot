@@ -109,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     searches_used = 0
     logged = 0
     history_path = history.DEMO_HISTORY_PATH if args.demo else history.HISTORY_PATH
+    pending: list[notify.RouteAlert] = []
 
     for watch in selected:
         verdicts: list[Verdict] = []
@@ -159,21 +160,38 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         if watch.notify.email:
-            settings = config.EmailSettings.from_env()
-            if not settings.configured:
-                print("  email not configured (SMTP_USER/SMTP_PASSWORD/ALERT_TO) - "
-                      "showing on screen only", file=sys.stderr)
-            else:
-                try:
-                    notify.send_email(settings, watch, deals, searched=verdicts)
-                    print(f"  emailed {len(deals)} deal(s) to {settings.to}")
-                except OSError as exc:
-                    print(f"  email failed: {exc}", file=sys.stderr)
-                    exit_code = 1
-                    continue  # don't record the alert if it never arrived
+            # Held back and sent as one email once every route has been
+            # checked - see the batching note on notify.RouteAlert.
+            pending.append(notify.RouteAlert(watch, deals, verdicts))
+        else:
+            # Not emailing this route, but it was still decided on - record it
+            # so the same fare doesn't queue up again next run.
+            for v in deals:
+                state.record_alert(v)
 
-        for v in deals:
-            state.record_alert(v)
+    if pending:
+        settings = config.EmailSettings.from_env()
+        found = sum(len(g.deals) for g in pending)
+        if not settings.configured:
+            print("email not configured (SMTP_USER/SMTP_PASSWORD/ALERT_TO) - "
+                  "showing on screen only", file=sys.stderr)
+            for g in pending:
+                for v in g.deals:
+                    state.record_alert(v)
+        else:
+            try:
+                notify.send_email(settings, pending)
+                where = (f"{found} deal(s) across {len(pending)} route(s)"
+                         if len(pending) > 1 else f"{found} deal(s)")
+                print(f"\nemailed {where} to {settings.to}")
+                for g in pending:
+                    for v in g.deals:
+                        state.record_alert(v)
+            except OSError as exc:
+                # Nothing is recorded: an alert that never arrived must stay
+                # eligible to be sent again next run.
+                print(f"email failed: {exc}", file=sys.stderr)
+                exit_code = 1
 
     if not args.dry_run:
         state.record_searches(searches_used)

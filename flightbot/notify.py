@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import smtplib
 import ssl
+from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
 from html import escape as esc
@@ -29,6 +30,20 @@ INK_3 = "#8b929c"
 LINE = "#e2e5ea"
 FONT = ("-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,"
         "Helvetica,Arial,sans-serif")
+
+
+@dataclass(frozen=True)
+class RouteAlert:
+    """One route's worth of alertable fares, plus everything it searched.
+
+    Alerts are batched across routes into a single email. Two routes serving
+    the same city - BNE->NRT and BNE->HND - arriving as separate mails is both
+    noisier and harder to compare, which defeats the point of watching both.
+    """
+
+    watch: Watch
+    deals: list[Verdict]
+    searched: list[Verdict]
 
 
 def cheapest_of(verdicts: list[Verdict]) -> Verdict | None:
@@ -154,13 +169,27 @@ def print_results(watch: Watch, verdicts: list[Verdict], colour: bool = True) ->
 
 
 # ---------------------------------------------------------------- plain text
-def _plain_body(watch: Watch, verdicts: list[Verdict],
-                searched: list[Verdict] | None = None) -> str:
-    ordered = by_price(verdicts)
+def _plain_body(groups: list[RouteAlert]) -> str:
+    total = sum(len(g.deals) for g in groups)
+    lines: list[str] = []
+    if len(groups) > 1:
+        lines += [f"{total} fare{'' if total == 1 else 's'} worth a look "
+                  f"across {len(groups)} routes.", ""]
+    for gi, g in enumerate(groups):
+        if gi:
+            lines += ["", "-" * 56, ""]
+        lines += _plain_route(g)
+    lines.append("-- ")
+    lines.append("Your flight watch bot. Prices move; check before booking.")
+    return "\n".join(lines)
+
+
+def _plain_route(g: RouteAlert) -> list[str]:
+    watch, ordered = g.watch, by_price(g.deals)
     lines = [
         f"{watch.origin} -> {watch.destination}   {_trip_summary(watch)}",
     ]
-    scope = _scope_line(searched)
+    scope = _scope_line(g.searched)
     if scope:
         lines.append(scope)
     lines.append("")
@@ -189,9 +218,7 @@ def _plain_body(watch: Watch, verdicts: list[Verdict],
             lines.append(f"  Book: {q.booking_url}")
         lines.append("")
 
-    lines.append("-- ")
-    lines.append("Your flight watch bot. Prices move; check before booking.")
-    return "\n".join(lines)
+    return lines
 
 
 # ---------------------------------------------------------------- html
@@ -289,9 +316,9 @@ def _row(v: Verdict) -> str:
     )
 
 
-def _html_body(watch: Watch, verdicts: list[Verdict],
-               searched: list[Verdict] | None = None) -> str:
-    ordered = by_price(verdicts)
+def _html_route(g: RouteAlert, first: bool) -> str:
+    """One route's block: its heading, then its fares."""
+    watch, ordered = g.watch, by_price(g.deals)
     hero = _card(ordered[0], hero=True)
 
     # The rest collapse where the client supports <details>. Gmail strips it and
@@ -312,15 +339,42 @@ def _html_body(watch: Watch, verdicts: list[Verdict],
             f'{rows}</table></details>'
         )
 
-    cards = hero + rest
-
-    scope = _scope_line(searched)
+    scope = _scope_line(g.searched)
     scope_html = ""
     if scope:
         scope_html = (f'<div style="font-size:12px;color:{INK_3};margin-top:8px;'
                       f'line-height:1.45">{esc(scope)}</div>')
 
-    more = ""
+    # A rule above every route but the first, so stacked routes read as
+    # separate sections rather than one run-on list.
+    top = "0 0 18px" if first else "26px 0 18px"
+    divider = ("" if first else
+               f'border-top:1px solid {LINE};')
+
+    return (
+        f'<tr><td style="padding:{top};{divider}">'
+        f'<div style="font-size:19px;font-weight:700;color:{INK};padding-top:'
+        f'{"0" if first else "22px"}">'
+        f'{esc(watch.origin)} &rarr; {esc(watch.destination)}</div>'
+        f'<div style="font-size:13px;color:{INK_2};margin-top:3px">'
+        f'{esc(_trip_summary(watch))}</div>{scope_html}</td></tr>'
+        f'<tr><td>{hero}{rest}</td></tr>'
+    )
+
+
+def _html_body(groups: list[RouteAlert]) -> str:
+    total = sum(len(g.deals) for g in groups)
+    lead = ""
+    if len(groups) > 1:
+        lead = (
+            f'<tr><td style="padding:0 0 20px">'
+            f'<div style="font-size:20px;font-weight:700;color:{INK}">'
+            f'{total} fare{"" if total == 1 else "s"} worth a look</div>'
+            f'<div style="font-size:13px;color:{INK_2};margin-top:3px">'
+            f'across {len(groups)} routes you are watching</div></td></tr>'
+        )
+    sections = "".join(_html_route(g, first=(i == 0 and not lead))
+                       for i, g in enumerate(groups))
 
     return (
         f'<!doctype html><html><body style="margin:0;padding:0;background:#f6f7f9">'
@@ -328,33 +382,29 @@ def _html_body(watch: Watch, verdicts: list[Verdict],
         f'style="background:#f6f7f9"><tr><td align="center" style="padding:24px 12px">'
         f'<table role="presentation" width="600" cellpadding="0" cellspacing="0" '
         f'style="width:100%;max-width:600px;font-family:{FONT}">'
-        f'<tr><td style="padding:0 0 18px">'
-        f'<div style="font-size:19px;font-weight:700;color:{INK}">'
-        f'{esc(watch.origin)} &rarr; {esc(watch.destination)}</div>'
-        f'<div style="font-size:13px;color:{INK_2};margin-top:3px">'
-        f'{esc(_trip_summary(watch))}</div>{scope_html}</td></tr>'
-        f'<tr><td>{more}{cards}</td></tr>'
-        f'<tr><td style="padding:8px 4px 0">'
+        f'{lead}{sections}'
+        f'<tr><td style="padding:14px 4px 0">'
         f'<div style="font-size:12px;color:{INK_3};line-height:1.5">'
         f'Prices move &mdash; check before booking. Sent by your flight watch bot; '
-        f'edit watches.json to change thresholds.</div>'
+        f'add or remove routes with <b>python check.py --ui</b>.</div>'
         f'</td></tr></table></td></tr></table></body></html>'
     )
 
 
-def _subject(watch: Watch, verdicts: list[Verdict]) -> str:
+def _subject(groups: list[RouteAlert]) -> str:
     """Front-load the price, then say why it's worth opening.
 
     A subject is read at a glance in a list, and phone clients cut it around
-    35 characters - so price and route come first, and the reason it qualified
-    comes next. "+N more" was the old tail and said nothing about whether the
-    mail was worth opening.
+    35 characters - so the best price and its route come first, and the reason
+    it qualified comes next. Across several routes the headline is the single
+    cheapest fare found anywhere, not a list of them.
     """
-    best = cheapest_of(verdicts)
+    every = [(g.watch, v) for g in groups for v in g.deals]
+    watch, best = min(every, key=lambda pair: pair[1].quote.price)
     q = best.quote
-    head = f"{q.currency} {q.price:,.0f} {watch.origin}→{watch.destination}"
-    parts = [head, f"{q.depart_date:%a %d %b}"]
 
+    parts = [f"{q.currency} {q.price:,.0f} {watch.origin}→{watch.destination}",
+             f"{q.depart_date:%a %d %b}"]
     pct = _under_pct(best)
     if pct:
         parts.append(f"{pct}% under typical")
@@ -362,8 +412,8 @@ def _subject(watch: Watch, verdicts: list[Verdict]) -> str:
         parts.append(f"Google: {q.price_level}")
 
     line = " · ".join(parts)
-    if len(verdicts) > 1:
-        line += f" (+{len(verdicts) - 1})"
+    if len(every) > 1:
+        line += f" (+{len(every) - 1})"
     return line
 
 
@@ -490,18 +540,21 @@ def send_digest(settings: EmailSettings, d: dict, quota: str) -> None:
         server.send_message(msg)
 
 
-def send_email(settings: EmailSettings, watch: Watch, verdicts: list[Verdict],
-               searched: list[Verdict] | None = None) -> None:
-    """Raises on failure so the caller can report it rather than fail silently."""
-    if not verdicts or cheapest_of(verdicts) is None:
+def send_email(settings: EmailSettings, groups: list[RouteAlert]) -> None:
+    """One email covering every route that found something.
+
+    Raises on failure so the caller can report it rather than fail silently.
+    """
+    groups = [g for g in groups if g.deals and cheapest_of(g.deals) is not None]
+    if not groups:
         return
 
     msg = EmailMessage()
-    msg["Subject"] = _subject(watch, verdicts)
+    msg["Subject"] = _subject(groups)
     msg["From"] = settings.user
     msg["To"] = settings.to
-    msg.set_content(_plain_body(watch, verdicts, searched))
-    msg.add_alternative(_html_body(watch, verdicts, searched), subtype="html")
+    msg.set_content(_plain_body(groups))
+    msg.add_alternative(_html_body(groups), subtype="html")
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(settings.host, settings.port, context=context) as server:
