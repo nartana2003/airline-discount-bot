@@ -193,10 +193,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"email failed: {exc}", file=sys.stderr)
                 exit_code = 1
 
-    if not args.dry_run:
-        state.record_searches(searches_used)
-        state.save()
-
     if logged:
         total = history.summary(history_path)
         print(f"\nlogged {logged} price(s) to {history_path.name} "
@@ -205,6 +201,10 @@ def main(argv: list[str] | None = None) -> int:
     # The monthly "still watching" note. Sent on the first run of each calendar
     # month, covering everything seen since the last one - so a missed run
     # widens the window rather than losing the period.
+    #
+    # This has to run BEFORE state.save(): record_digest() only sets a field in
+    # memory, so sending after the save left the month unwritten and the digest
+    # fired again on every single run.
     if not args.dry_run and not args.demo and (args.digest or state.digest_due()):
         d = history.digest(history.since(state.last_digest_at(), history_path))
         if d["searches"] == 0 and not args.digest:
@@ -225,6 +225,10 @@ def main(argv: list[str] | None = None) -> int:
                 except OSError as exc:
                     print(f"digest failed to send: {exc}", file=sys.stderr)
                     exit_code = 1
+
+    if not args.dry_run:
+        state.record_searches(searches_used)
+        state.save()
 
     if searches_used:
         # Report SerpApi's figure, not the local tally - they can disagree and
