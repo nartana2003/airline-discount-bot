@@ -246,33 +246,39 @@ let saveTimer = null;
 // and returns zero flights, so they must not be selectable.
 let AIRPORTS = [];
 let BY_CODE = new Map();
+let INDEX = [];   // AIRPORTS with accent-folded fields cached for searching
 
-// Islands, regions and old names people actually type, which match no city
-// field. Without these, "bali" finds Balikesir and Balikpapan by prefix and
-// buries Denpasar, whose only "Bali" is inside the airport name.
+// "Malé" must match "male", "São Paulo" must match "sao paulo". Folded once at
+// load rather than per keystroke - 4000 airports x 4 fields adds up.
+const fold = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+// Region and island names that appear in no field of the dataset. Most former
+// aliases are gone: the data now carries its own keywords, so "bali" finds
+// Denpasar and "saigon" finds Ho Chi Minh City without help.
 const ALIASES = {
-  bali: "DPS", fiji: "NAN", hawaii: "HNL", okinawa: "OKA", maldives: "MLE",
-  santorini: "JTR", mykonos: "JMK", crete: "HER", sicily: "CTA",
-  tuscany: "FLR", saigon: "SGN", "ho chi minh": "SGN", bombay: "BOM",
-  calcutta: "CCU", madras: "MAA", peking: "PEK", rangoon: "RGN",
-  bangalore: "BLR", kiev: "KBP", "gold coast": "OOL", "new york": "JFK",
+  hawaii: "HNL", fiji: "NAN", sicily: "CTA", tuscany: "FLR",
+  "gold coast": "OOL",
+  // Cities whose main airport carries no trace of the city name in any field.
+  taipei: "TPE",     // "Taiwan Taoyuan International Airport", city Taoyuan
+  okinawa: "OKA",    // "Naha Airport" - only Japanese-script keywords mention it
 };
 
-// Rough importance order, used only to break ties. A plain yes/no hub flag left
-// "London" sorting alphabetically and putting Gatwick above Heathrow; ranking
-// by position puts the airport someone means first.
-const HUB_ORDER = ("ATL PEK LHR HND NRT DXB LAX CDG JFK AMS FRA IST SIN ICN HKG BKK SYD "
-  + "MEL BNE DFW DEN CAN KUL MAD SFO SEA MUC ORD YYZ PER AKL KIX DOH AUH DEL BOM MNL CGK "
-  + "SGN HAN TPE PVG SZX CTU MEX GRU EZE SCL LIM BOG YVR YUL BCN FCO LIS ZRH VIE CPH ARN "
-  + "OSL HEL DUB BRU MAN ATH TLV JED RUH CAI JNB CPT NBO ADD LOS ACC DPS HKT CNX REP PNH "
-  + "KTM DAC CMB MLE NAN HNL OKA CTA EDI GLA LGW STN SAW OTP PRG BUD WAW KRK SVO LED HAM "
-  + "DUS STR BER CGN NCE LYS MRS TLS NAP VCE MXP BLQ FLR PMI AGP VLC SVQ OPO FAO HER RHO "
-  + "CFU JTR JMK SKG ITM DMK ORY").split(/\s+/));
-const HUB_RANK = new Map(HUB_ORDER.map((c, i) => [c, i]));
-const hubBonus = (code) => {
-  const i = HUB_RANK.get(code);
-  return i === undefined ? 0 : 14 - Math.min(Math.floor(i / 25), 10);
-};
+// Multi-airport cities where every candidate is the same size class, so size
+// alone can't break the tie - without this "london" sorts alphabetically and
+// puts Gatwick above Heathrow.
+const PRIMARY = new Set(("LHR CDG JFK HND ICN PVG BKK SIN DXB FRA MUC FCO MXP BCN MAD LIS "
+  + "AMS BRU CPH ARN OSL HEL DUB ZRH VIE IST SVO GRU EZE SCL LIM BOG MEX YYZ YVR SYD MEL "
+  + "BNE AKL DEL BOM HKG TPE MNL CGK SGN HAN KIX NRT LAX ORD SFO SEA BER "
+  // DOH ties with the old Doha International, JNB with Lanseria - same city
+  // name, same size class, so without this the minor one wins on sort order.
+  + "DOH JNB").split(/\s+/));
+
+// Bigger airports first, using the dataset's own size class rather than a
+// hand-maintained hub list. Being a city's primary airport outweighs match
+// tier entirely: Le Bourget's municipality is exactly "Paris" while Charles de
+// Gaulle's is "Paris (Roissy-en-France, Val-d'Oise)", so on match quality alone
+// the wrong airport wins. If you typed the city, you meant the main airport.
+const sizeBonus = (a) => [12, 5, 1][a[4]] + (PRIMARY.has(a[0]) ? 30 : 0);
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
@@ -289,27 +295,29 @@ function searchAirports(q, limit = 8) {
   q = q.trim().toLowerCase();
   if (!q) return [];
 
+  q = fold(q);
   const alias = ALIASES[q];
   const scored = [];
 
-  for (const a of AIRPORTS) {
-    const [code, city, country, name] = a;
-    const lcCode = code.toLowerCase();
-    const lcCity = city.toLowerCase();
+  for (const e of INDEX) {
     let score = 0;
 
-    if (lcCode === q) score = 100;                         // exact code
-    else if (alias === code) score = 95;                   // known nickname
-    else if (lcCity === q) score = 90;                     // exact city
-    else if (lcCity.startsWith(q)) score = 70;             // city prefix
-    else if (country.toLowerCase().startsWith(q)) score = 45;
-    else if (lcCity.includes(q)) score = 40;
-    else if (name.toLowerCase().includes(q)) score = 30;   // e.g. "Bali" -> DPS
-    else if (country.toLowerCase().includes(q)) score = 15;
+    if (e.code === q) score = 100;                       // exact code
+    else if (alias === e.a[0]) score = 95;               // known nickname
+    else if (e.city === q) score = 90;                   // exact city
+    else if (e.kw.includes(q)) score = 88;               // "bali", "saigon", "tyo"
+    else if (e.city.startsWith(q)) score = 70;
+    // "Milan Malpensa International Airport" - the city is only in the name,
+    // because the municipality is the suburb the runway happens to sit in.
+    else if (e.name.startsWith(q)) score = 66;
+    else if (e.kw.some(k => k.startsWith(q))) score = 62;
+    else if (e.country.startsWith(q)) score = 45;
+    else if (e.city.includes(q)) score = 40;
+    else if (e.name.includes(q)) score = 30;
+    else if (e.country.includes(q)) score = 15;
     else continue;
 
-    score += hubBonus(code);
-    scored.push([score, a]);
+    scored.push([score + sizeBonus(e.a), e.a]);
   }
 
   scored.sort((x, y) => y[0] - x[0] || x[1][1].localeCompare(y[1][1]));
@@ -467,13 +475,37 @@ async function loadAirports() {
   try {
     AIRPORTS = await getJSON("/airports.json");
     BY_CODE = new Map(AIRPORTS.map(a => [a[0], a]));
+    INDEX = AIRPORTS.map(a => ({
+      a,
+      code: a[0].toLowerCase(),
+      city: fold(a[1]),
+      country: fold(a[2]),
+      name: fold(a[3]),
+      kw: a[5] ? a[5].split("|").map(fold) : [],
+    }));
   } catch {
     // Search is a convenience; typing a code by hand must still work without it.
-    AIRPORTS = []; BY_CODE = new Map();
+    AIRPORTS = []; BY_CODE = new Map(); INDEX = [];
   }
 }
 
 async function load() {
+  // Opened by double-clicking the file, or via an editor preview pane. Every
+  // fetch below would resolve against file:/// and hang or be blocked, leaving
+  // the page stuck on "Loading…" with no clue why. Say so instead.
+  if (location.protocol !== "http:" && location.protocol !== "https:") {
+    $("banner").innerHTML = `<div class="banner">
+      <strong>This page is open as a file, so it can't reach your routes.</strong><br>
+      A <code>file://</code> page isn't allowed to read or write
+      <code>watches.json</code>, so the panel has to be served instead.
+      <br><br>
+      Close this tab and <strong>double-click <code>start-ui.bat</code></strong>
+      in the project folder — or run <code>python check.py --ui</code> yourself.
+      Either one opens the working panel in your browser.</div>`;
+    pill("Not connected", "error");
+    return;
+  }
+
   try {
     await loadAirports();
     const data = await getJSON("/api/watches");

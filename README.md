@@ -15,6 +15,58 @@ python check.py --demo
 That runs the whole pipeline against a bundled fixture so you can see the
 decision logic work before committing to anything.
 
+## How the whole thing works
+
+Once a week GitHub Actions wakes the bot up and it does this:
+
+```
+watches.json      your routes, shared defaults, monthly search budget
+     │
+     ▼
+config.py         load routes, then work out how densely to sample:
+                  monthly cap ÷ runs per month ÷ number of enabled routes
+     │            → "check every 5th departure date, 49 searches"
+     ▼
+provider.py       ask SerpApi (Google Flights) for each sampled date pair
+     │            ONE SEARCH = ONE EXACT DATE PAIR. no flexible-date mode.
+     ▼
+evaluate.py       is this a deal?  one rule: Google itself rates it "low"
+     │
+     ▼
+state.py          have I already emailed you about these exact dates?
+     │            if yes, stay quiet - unless it dropped another 5%
+     ▼
+notify.py         email what survives, cheapest first, with booking links
+     │
+     ▼
+state.json        record what was sent - committed back to the repo,
+                  because that commit IS the bot's memory between runs
+```
+
+Four decisions shape everything else, and each one is a reaction to a real
+constraint rather than a preference:
+
+**The API can't search a date range.** `google_flights` takes one departure date
+and one return date, so a run can't *cover* a window — it **samples** it. That
+single fact is why there's a budget, why sampling density matters, and why
+adding a route makes every route coarser.
+
+**You get 250 searches a month, free.** So the bot derives its own sampling
+density from that cap instead of asking you to do arithmetic, and it checks
+SerpApi's real quota figure before starting a run it couldn't finish.
+
+**Knowing a price is easy; knowing it's *good* is hard.** Rather than building
+months of price history, it defers to Google's own `low`/`typical`/`high`
+verdict, which is built on real history and recalibrates by season on its own.
+That's the only alerting rule — absolute price thresholds were removed because
+they go stale as fares move.
+
+**Being told twice is noise.** Once you've been emailed about a date pair, you
+never are again, unless the price falls another 5%. That memory lives in
+`state.json`, which the workflow commits back after every run.
+
+Everything else is detail on those four, and each has its own section below.
+
 ## How it decides something is a deal
 
 The hard part of a price bot isn't fetching a price — it's knowing whether that
@@ -158,7 +210,7 @@ pair:
 
 ```json
 "alerts": {
-  "bne-tokyo:2026-11-21_2026-12-03": {
+  "bne-nrt:2026-11-21_2026-12-03": {
     "price": 719.0, "price_level": "low", "at": "2026-08-23T06:08:56+00:00"
   }
 }
@@ -183,12 +235,15 @@ gap between runs** (weekly = 168h) or every run re-alerts the same fare.
 
 ## Adding and removing routes
 
-```bash
-python check.py --ui
-```
+**Double-click `start-ui.bat`** (or run `python check.py --ui`).
 
 That opens the control panel in your browser. Nothing is hardcoded — add routes,
 remove them, pause them, and it writes `watches.json` for you as you type.
+
+> **Don't open `ui/index.html` directly.** Double-clicking it, or using an
+> editor's preview pane, loads it as a `file://` page — which browsers forbid
+> from reading local files, so it can't see your routes. The page detects this
+> and says so rather than sitting there loading forever.
 
 A route is **four things**: origin, destination, trip length, on/off.
 
@@ -239,21 +294,38 @@ Typing a code you already know still works.
 are accepted by the API and return **zero flights** — verified live — so the
 picker must not let you choose one.
 
-`ui/airports.json` is 6,071 airports (337 KB), built from the
-[OpenFlights](https://openflights.org/data.html) airport database, which is
-licensed **ODbL** and is itself largely sourced from the public-domain
-[OurAirports](https://ourairports.com/data/). Attribution is required if you
-redistribute it — that's what this section is. To rebuild:
+`ui/airports.json` is 4,009 airports (281 KB) built from
+[OurAirports](https://ourairports.com/data/), which is **public domain** — no
+attribution obligation, and safe to carry in a public repo.
 
 ```bash
-curl -o airports.dat https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat
-# then filter to rows with a 3-letter IATA code and type == "airport",
-# dropping the metro codes, into [code, city, country, name] tuples.
+curl -O https://davidmegginson.github.io/ourairports-data/airports.csv
+curl -O https://davidmegginson.github.io/ourairports-data/countries.csv
+# keep rows with a 3-letter IATA code, type in {large,medium,small}_airport,
+# and scheduled_service == "yes"; emit [code, city, country, name, size, keywords]
 ```
 
-If you'd rather not carry an ODbL file in a public repo at all, OurAirports
-publishes the same information in the public domain and can be filtered the same
-way — it just needs more work, since it includes heliports and closed fields.
+Three columns do real work here:
+
+- **`scheduled_service`** filters to airports with actual commercial flights.
+  That's what drops the ~2,000 private strips, and it's why the file shrank
+  while getting *more* useful.
+- **`type`** (large/medium/small) ranks results, replacing a hand-maintained
+  list of hub codes with something the upstream keeps current.
+- **`keywords`** carries the alternate names — this is why "bali" finds
+  Denpasar and "saigon" finds Ho Chi Minh City without a lookup table of my own.
+
+This replaced [OpenFlights](https://openflights.org/data.html), which was tried
+first and rejected on evidence: it was **missing BER** (Berlin's airport since
+2020) while still listing **TXL and SXF**, both closed in 2020. Offering a
+closed airport is the same failure as offering a metro code — a search that
+returns nothing and still costs a credit. OpenFlights is also ODbL, so it
+carried an attribution obligation this doesn't.
+
+Search folds accents (`são paulo` = `sao paulo`) and is checked against a sweep
+of 87 major destinations. A handful of cities still need an explicit alias
+because their airport mentions the city nowhere at all — Taipei's is "Taiwan
+Taoyuan International Airport" in the municipality of Taoyuan.
 
 ## Commands
 
@@ -271,9 +343,11 @@ python check.py --limit 6        # only the first 6 dates - cheap live smoke tes
 
 ```
 check.py              entry point
+start-ui.bat          double-click to open the control panel
 watches.json          your routes, plus shared defaults and the budget
 state.json            memory: alert history + monthly search spend
-ui/index.html         the control panel - served by --ui
+ui/index.html         the control panel - served by --ui, not opened directly
+ui/airports.json      4009 airports for the search box (public domain)
 flightbot/
   config.py           settings, watchlist loading, sampling planner
   ui_server.py        localhost server behind --ui (stdlib only)
