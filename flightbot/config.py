@@ -190,7 +190,11 @@ def plan_sampling(watches: list[Watch], budget: Budget) -> None:
     share = per_run / len(active)
 
     for w in active:
-        span = max(w.days_from_now_max - w.days_from_now_min, 1)
+        # Clip to the horizon exactly as probes() does. Budgeting for days that
+        # will never be searched makes the step too big, so the run samples more
+        # coarsely than it can afford and quietly leaves credits unspent.
+        reach = min(w.days_from_now_max, MAX_HORIZON_DAYS)
+        span = max(reach - w.days_from_now_min, 1)
         if share <= 1:
             # Budget too small to sample at all - one probe per run per route.
             w.step_days = span
