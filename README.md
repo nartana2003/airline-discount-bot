@@ -104,12 +104,42 @@ second watch if you have quota spare.
 ## Running it automatically
 
 [.github/workflows/check-flights.yml](.github/workflows/check-flights.yml) runs
-the check weekly, Monday 07:00 Brisbane time, on GitHub Actions (free). Push the repo
-to GitHub, add `SERPAPI_KEY`, `SMTP_USER`, `SMTP_PASSWORD` and `ALERT_TO` under
-**Settings → Secrets and variables → Actions**, and it runs itself.
+the check weekly, Monday 07:00 Brisbane time, on GitHub Actions (free). The repo
+is [nartana2003/airline-discount-bot](https://github.com/nartana2003/airline-discount-bot).
+
+**1. Authenticate git once.** This machine has no GitHub credentials yet, so
+pushes fail with *"Password authentication is not supported"*. Easiest fix:
+
+```bash
+winget install --id GitHub.cli
+gh auth login          # choose HTTPS, authenticate in the browser
+gh auth setup-git      # makes git reuse that login
+```
+
+**2. Push.**
+
+```bash
+git push -u origin main
+```
+
+**3. Add the secrets.** On GitHub go to **Settings → Secrets and variables →
+Actions → New repository secret** and add four:
+
+| Secret | Value |
+|---|---|
+| `SERPAPI_KEY` | your key from [serpapi.com](https://serpapi.com/manage-api-key) |
+| `SMTP_USER` | your Gmail address |
+| `SMTP_PASSWORD` | the 16-character Gmail **App Password** (not your login password) |
+| `ALERT_TO` | where alerts go (usually the same Gmail address) |
+
+`SMTP_HOST` and `SMTP_PORT` are optional — they default to `smtp.gmail.com:465`.
+
+**4. Test it without waiting a week.** Actions tab → *Check flight prices* →
+**Run workflow**. The `workflow_dispatch` trigger exists for exactly this.
 
 The workflow commits `state.json` back after each run — that commit is the bot's
-memory, so don't add it to `.gitignore`.
+memory, so don't add it to `.gitignore`. It needs `contents: write`, which is
+already declared in the workflow file.
 
 ## Not getting spammed
 
