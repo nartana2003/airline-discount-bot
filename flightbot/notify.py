@@ -49,13 +49,12 @@ def _stops_text(stops: int | None) -> str:
     return "1 stop" if stops == 1 else f"{stops} stops"
 
 
-def _trip_summary(watch: Watch) -> str:
+def _trip_summary(watch: Watch, sep: str = " · ") -> str:
+    """`sep` is ASCII-able for the terminal: a Windows console using cp1252
+    can't encode '·' and would mangle the line."""
     cabin = CABINS.get(watch.travel_class, "Economy")
     who = "1 adult" if watch.adults == 1 else f"{watch.adults} adults"
-    # A pinned trip length reads as "12 day", not "12-12 day".
-    length = (f"{watch.trip_min}" if watch.trip_min == watch.trip_max
-              else f"{watch.trip_min}-{watch.trip_max}")
-    return f"{length} day return · {cabin} · {who}"
+    return sep.join([f"{watch.trip_days} day return", cabin, who])
 
 
 def _scope_line(searched: list[Verdict] | None) -> str:
@@ -92,7 +91,7 @@ def _saving(v: Verdict) -> str:
 # ---------------------------------------------------------------- terminal
 def print_results(watch: Watch, verdicts: list[Verdict], colour: bool = True) -> None:
     g, d, b, r = (GREEN, DIM, BOLD, RESET) if colour else ("", "", "", "")
-    print(f"\n{b}{watch.label}{r}  {d}({watch.origin} -> {watch.destination}){r}")
+    print(f"\n{b}{watch.label}{r}  {d}{_trip_summary(watch, sep=' - ')}{r}")
 
     if not verdicts:
         print(f"  {d}no dates to search{r}")

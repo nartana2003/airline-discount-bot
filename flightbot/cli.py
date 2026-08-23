@@ -18,6 +18,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="check.py",
         description="Check watched routes for cheap fares and email you when one appears.",
     )
+    p.add_argument("--ui", action="store_true",
+                   help="open the control panel in your browser to add or remove routes")
+    p.add_argument("--port", type=int, default=8765, metavar="N",
+                   help="port for --ui (default 8765)")
     p.add_argument("--demo", action="store_true",
                    help="use the bundled fixture instead of the live API (no key needed)")
     p.add_argument("--watch", metavar="ID",
@@ -37,8 +41,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     config.load_dotenv()
 
+    if args.ui:
+        from .ui_server import serve
+        return serve(port=args.port)
+
     try:
-        watches, monthly_cap = config.load_watchlist()
+        watches, budget = config.load_watchlist()
     except (OSError, ValueError, KeyError) as exc:
         print(f"could not read watches.json: {exc}", file=sys.stderr)
         return 1
@@ -67,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.demo:
         # Prefer SerpApi's own figure over the local tally, which drifts.
         real_left = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
-        local_left = max(monthly_cap - state.searches_this_month(), 0)
+        local_left = max(budget.monthly_search_cap - state.searches_this_month(), 0)
         # Take the stricter of the two: SerpApi's is the hard limit, but a
         # lower local cap is a deliberate self-restraint worth honouring.
         available = min(real_left, local_left) if real_left is not None else local_left
@@ -75,8 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         if planned > available:
             print(
                 f"stopping: this run needs {planned} searches but only {available} "
-                f"remain (per {source}). To fit: raise step_days, shorten the window, "
-                f"or run less often - or raise the cap in watches.json.",
+                f"remain (per {source}). Sampling density is derived from the cap, "
+                f"so this usually means the month's quota is already spent - wait "
+                f"for the reset, pause a route in --ui, or raise the cap.",
                 file=sys.stderr,
             )
             return 2
@@ -161,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         # the authoritative one is the one that actually stops you searching.
         left = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
         if left is None:
-            left = f"~{monthly_cap - state.searches_this_month()} (local estimate)"
+            left = f"~{budget.monthly_search_cap - state.searches_this_month()} (local estimate)"
         print(f"\n{searches_used} search(es) used, {left} left this month")
 
     return exit_code

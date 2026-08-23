@@ -3,11 +3,16 @@
 Secrets come from the environment (via a local `.env` in development, or repo
 secrets when running in GitHub Actions). The watchlist itself is plain JSON so
 it stays hand-editable.
+
+A watch describes only what actually varies between routes - where you're
+flying, how long for, and whether it's on. Everything else is either a shared
+default (`defaults` in watches.json) or computed: see `plan_sampling`.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -17,6 +22,11 @@ ROOT = Path(__file__).resolve().parent.parent
 WATCHES_PATH = ROOT / "watches.json"
 STATE_PATH = ROOT / "state.json"
 FIXTURES_DIR = ROOT / "fixtures"
+
+# Airlines load schedules roughly 300 days out. Past that a search returns
+# nothing AND still costs a credit. Verified live: 297 days returned flights,
+# 327 returned none. Not configurable - it's a fact about the world.
+MAX_HORIZON_DAYS = 300
 
 
 def load_dotenv(path: Path | None = None) -> None:
@@ -74,12 +84,19 @@ class NotifyRules:
 
 
 @dataclass(frozen=True)
+class Budget:
+    monthly_search_cap: int = 240
+    runs_per_month: float = 4.3
+    """Weekly schedule - see .github/workflows/check-flights.yml."""
+
+
+@dataclass(frozen=True)
 class Probe:
     """One search: one exact departure date paired with one exact return date.
 
     The google_flights engine takes a single YYYY-MM-DD per field - it has no
     flexible-date or date-range mode - so a run samples the window rather than
-    covering it. `step_days` in the watch config sets how dense that sample is.
+    covering it. `Watch.step_days` sets how dense that sample is.
     """
 
     depart: date
@@ -100,110 +117,173 @@ class Probe:
 
 @dataclass
 class Watch:
+    """One route. Only the first five fields come from the UI; the rest are
+    shared defaults or computed by `plan_sampling`."""
+
     id: str
-    label: str
     origin: str
     destination: str
     enabled: bool = True
+    trip_days: int = 12
+
+    days_from_now_min: int = 60
+    days_from_now_max: int = MAX_HORIZON_DAYS
+    step_days: int = 5  # overwritten by plan_sampling()
+
     adults: int = 1
     travel_class: int = 1
     stops: int = 0
     currency: str = "AUD"
     gl: str = "au"
     hl: str = "en"
-    trip_min: int = 10
-    trip_max: int = 14
-    window: dict = field(default_factory=dict)
     deal_rules: DealRules = field(default_factory=DealRules)
     notify: NotifyRules = field(default_factory=NotifyRules)
+
+    @property
+    def label(self) -> str:
+        """Derived, not stored - a route names itself."""
+        return f"{self.origin} -> {self.destination}"
 
     def probes(self, today: date | None = None) -> list[Probe]:
         """Sample the window as exact date pairs, one search each.
 
-        Trip length rotates through [trip_min, trip_max] across consecutive
-        probes, so a run samples the duration dimension too without costing
-        anything extra - each search needs one exact return date regardless.
+        Trip length is a single number, so every probe uses the same duration
+        and prices are directly comparable across dates: a cheaper result means
+        a cheaper date, not a shorter trip.
         """
         today = today or date.today()
-        win = self.window
-        step = max(int(win.get("step_days", 5)), 1)
-
-        if win.get("mode") == "fixed" and win.get("start_date"):
-            start = date.fromisoformat(win["start_date"])
-            end = date.fromisoformat(win["end_date"])
-        else:
-            start = today + timedelta(days=int(win.get("days_from_now_min", 90)))
-            end = today + timedelta(days=int(win.get("days_from_now_max", 290)))
+        start = today + timedelta(days=self.days_from_now_min)
+        end = today + timedelta(days=self.days_from_now_max)
 
         # Never search a departure date in the past, and never past the point
-        # airlines have loaded schedules - beyond that every search returns
-        # nothing and still costs a credit.
+        # airlines have loaded schedules.
         start = max(start, today + timedelta(days=1))
-        horizon = today + timedelta(days=int(win.get("max_horizon_days", 300)))
-        end = min(end, horizon)
+        end = min(end, today + timedelta(days=MAX_HORIZON_DAYS))
         if end < start:
             return []
 
-        spread = max(self.trip_max - self.trip_min + 1, 1)
+        step = max(self.step_days, 1)
         out: list[Probe] = []
-        cursor, i = start, 0
+        cursor = start
         while cursor <= end:
-            trip = self.trip_min + (i % spread)
-            out.append(Probe(depart=cursor, ret=cursor + timedelta(days=trip)))
+            out.append(Probe(depart=cursor, ret=cursor + timedelta(days=self.trip_days)))
             cursor += timedelta(days=step)
-            i += 1
         return out
 
 
-def _strip_comments(obj: dict) -> dict:
+def plan_sampling(watches: list[Watch], budget: Budget) -> None:
+    """Set `step_days` on every enabled watch so the whole run fits the budget.
+
+    This is the dial that used to be hand-tuned in watches.json, and getting it
+    right meant doing arithmetic every time a route was added. The constraint is
+    simple enough to solve directly: split the per-run allowance evenly between
+    enabled routes, then pick the densest step that keeps each within its share.
+
+    The trade is worth stating plainly: adding a route makes every route sample
+    more coarsely, because the monthly cap is fixed. Nothing silently overspends.
+    """
+    active = [w for w in watches if w.enabled]
+    if not active:
+        return
+
+    per_run = budget.monthly_search_cap / max(budget.runs_per_month, 0.1)
+    share = per_run / len(active)
+
+    for w in active:
+        span = max(w.days_from_now_max - w.days_from_now_min, 1)
+        if share <= 1:
+            # Budget too small to sample at all - one probe per run per route.
+            w.step_days = span
+        else:
+            # probes = floor(span/step) + 1 <= share  =>  step >= span/(share-1)
+            w.step_days = max(math.ceil(span / (share - 1)), 1)
+
+
+def _clean(obj: dict) -> dict:
     """Drop the `_note`-style documentation keys used in watches.json."""
     return {k: v for k, v in obj.items() if not k.startswith("_")}
 
 
-def load_watchlist(path: Path | None = None) -> tuple[list[Watch], int]:
-    """Return (watches, monthly_search_cap)."""
+def _default_id(origin: str, destination: str) -> str:
+    return f"{origin}-{destination}".lower()
+
+
+def load_watchlist(path: Path | None = None) -> tuple[list[Watch], Budget]:
+    """Return (watches, budget) from disk, with sampling already planned."""
     raw = json.loads((path or WATCHES_PATH).read_text(encoding="utf-8"))
-    cap = int(_strip_comments(raw.get("_budget", {})).get("monthly_search_cap", 240))
+    watches, budget = load_watchlist_data(raw)
+    plan_sampling(watches, budget)
+    return watches, budget
+
+
+def load_watchlist_data(raw: dict) -> tuple[list[Watch], Budget]:
+    """Parse an already-decoded watchlist. Does not plan sampling.
+
+    Split out from `load_watchlist` so the control panel can validate and cost
+    an unsaved edit through exactly the same code a real run uses.
+    """
+    b = _clean(raw.get("budget", {}))
+    budget = Budget(
+        monthly_search_cap=int(b.get("monthly_search_cap", 240)),
+        runs_per_month=float(b.get("runs_per_month", 4.3)),
+    )
+
+    d = _clean(raw.get("defaults", {}))
+    win = _clean(d.get("window", {}))
+    market = _clean(d.get("market", {}))
+    notify = _clean(d.get("notify", {}))
+
+    rules = DealRules(
+        alert_on_price_level=tuple(
+            s.lower() for s in d.get("alert_on_price_level", ["low"])
+        ),
+    )
+    notify_rules = NotifyRules(
+        email=bool(notify.get("email", True)),
+        # Absent or null both mean "never re-alert on time alone".
+        cooldown_hours=(
+            None if notify.get("cooldown_hours") is None
+            else float(notify["cooldown_hours"])
+        ),
+        renotify_on_drop_pct=float(notify.get("renotify_on_drop_pct", 5)),
+    )
 
     watches: list[Watch] = []
+    seen_ids: set[str] = set()
     for entry in raw.get("watches", []):
-        e = _strip_comments(entry)
-        rules = _strip_comments(e.get("deal_rules", {}))
-        notify = _strip_comments(e.get("notify", {}))
-        trip = _strip_comments(e.get("trip_length_days", {}))
-        market = _strip_comments(e.get("market", {}))
-        passengers = _strip_comments(e.get("passengers", {}))
+        e = _clean(entry)
+        origin = str(e["origin"]).upper()
+        destination = str(e["destination"]).upper()
+
+        # IDs are derived from the route, so two watches on the same pair would
+        # collide - and the id keys alert history in state.json, which would
+        # make one route suppress the other's emails.
+        wid = e.get("id") or _default_id(origin, destination)
+        if wid in seen_ids:
+            base, n = wid, 2
+            while f"{base}-{n}" in seen_ids:
+                n += 1
+            wid = f"{base}-{n}"
+        seen_ids.add(wid)
 
         watches.append(
             Watch(
-                id=e["id"],
-                label=e.get("label", e["id"]),
-                origin=e["origin"].upper(),
-                destination=e["destination"].upper(),
-                enabled=e.get("enabled", True),
-                adults=int(passengers.get("adults", 1)),
-                travel_class=int(e.get("travel_class", 1)),
-                stops=int(e.get("stops", 0)),
-                currency=e.get("currency", "AUD"),
+                id=wid,
+                origin=origin,
+                destination=destination,
+                enabled=bool(e.get("enabled", True)),
+                trip_days=int(e.get("trip_days", 12)),
+                days_from_now_min=int(win.get("days_from_now_min", 60)),
+                days_from_now_max=int(win.get("days_from_now_max", MAX_HORIZON_DAYS)),
+                adults=int(d.get("adults", 1)),
+                travel_class=int(d.get("travel_class", 1)),
+                stops=int(d.get("stops", 0)),
+                currency=d.get("currency", "AUD"),
                 gl=market.get("gl", "au"),
                 hl=market.get("hl", "en"),
-                trip_min=int(trip.get("min", 10)),
-                trip_max=int(trip.get("max", 14)),
-                window=_strip_comments(e.get("window", {})),
-                deal_rules=DealRules(
-                    alert_on_price_level=tuple(
-                        s.lower() for s in rules.get("alert_on_price_level", ["low"])
-                    ),
-                ),
-                notify=NotifyRules(
-                    email=bool(notify.get("email", True)),
-                    # Absent or null both mean "never re-alert on time alone".
-                    cooldown_hours=(
-                        None if notify.get("cooldown_hours") is None
-                        else float(notify["cooldown_hours"])
-                    ),
-                    renotify_on_drop_pct=float(notify.get("renotify_on_drop_pct", 5)),
-                ),
+                deal_rules=rules,
+                notify=notify_rules,
             )
         )
-    return watches, cap
+
+    return watches, budget

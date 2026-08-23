@@ -55,19 +55,27 @@ no longer decides anything.
 `YYYY-MM-DD` for departure and return - it has no flexible-date or date-range
 mode. So a run cannot *cover* a window; it **samples** it.
 
-`step_days` sets how dense that sample is. The default watch looks 90-290 days
-ahead and probes every 5th departure date: **41 searches per run**, covering
-about 20% of departure dates.
+How dense that sample is used to be a number you set by hand (`step_days`), which
+meant redoing arithmetic every time you added a route. **The bot now works it out
+itself.** It knows the monthly cap, how often it runs, and how many routes are
+enabled, so it solves for the densest sampling that fits:
 
-Trip length is **pinned at 12 days** (`min` == `max` in `trip_length_days`), so
-every probe uses the same duration and prices are directly comparable across
-dates - a cheaper result means a cheaper date, not a shorter trip. Widening the
-range makes consecutive probes rotate through lengths instead, sampling duration
-at the cost of that like-for-like comparison. Checking *every* length against
-*every* date would cost 5x and doesn't fit the free tier.
+```
+per-run allowance = monthly cap ÷ runs per month
+each route's share = that ÷ number of enabled routes
+step = the smallest gap that keeps a route inside its share
+```
 
-At weekly runs that's ~176 searches/month against SerpApi's free 250.
-Anything more frequent overruns it - every-5-days would be 246.
+One route: every 5th date, **49 searches per run**, ~211/month against a 240 cap.
+Add a second and both drop to every 9th date — 27 each, 232/month, still inside.
+**Adding a route makes every route sample more coarsely.** That's the honest
+trade of a fixed budget, and it happens automatically rather than silently
+overspending.
+
+Trip length is **one number, not a range** (12 days). Every probe then uses the
+same duration, so prices are directly comparable across dates: a cheaper result
+means a cheaper *date*, not a shorter trip. A range would rotate durations
+between probes and quietly destroy that comparison.
 
 The bot checks **SerpApi's own quota figure** before each run rather than
 trusting a local tally, which drifts whenever `state.json` is deleted or a run
@@ -77,11 +85,9 @@ dies midway. It refuses to start a run it can't finish.
 
 **The booking horizon is about 300 days.** Airlines haven't loaded schedules
 beyond that, so those searches return nothing *and still cost a credit*. A live
-probe at 297 days returned flights; 327 days returned none.
-`max_horizon_days` clips the window automatically.
-
-This is why `rolling` mode is the sane default. A `fixed` window silently empties
-as it ages past the horizon.
+probe at 297 days returned flights; 327 days returned none. It's a fact about
+the world rather than a preference, so it's the constant `MAX_HORIZON_DAYS` in
+[config.py](flightbot/config.py) and the window is clipped to it automatically.
 
 **Use a real airport code, not a metro code.** `TYO` is accepted by the API and
 returns **zero flights**. `NRT` and `HND` work. The default watch uses `NRT`
@@ -175,74 +181,63 @@ gap between runs** (weekly = 168h) or every run re-alerts the same fare.
 
 `--force-notify` ignores all of the above and re-sends every current deal.
 
-## Adding and editing routes
+## Adding and removing routes
 
-Open [ui/index.html](ui/index.html) in **Chrome or Edge** (double-click it).
-Click *Open watches.json* and edit visually. Ctrl+S saves straight back.
+```bash
+python check.py --ui
+```
 
-Routes live in a sidebar you can filter by name or airport code (`/` jumps to
-the search box) and narrow to just Active or Paused. Picking one opens it in the
-detail pane, split across two tabs — **Route** (label, airports, on/off) and
-**Dates & deal** (window, sampling step, trip length, alert rules). Arrow keys
-move between routes, `1`–`2` jump between tabs, `?` lists the rest.
+That opens the control panel in your browser. Nothing is hardcoded — add routes,
+remove them, pause them, and it writes `watches.json` for you as you type.
 
-Everything that doesn't vary route to route — passengers, cabin, stops,
-currency, market, and the notification cooldown — lives behind **⚙ Settings**
-in the header instead of being repeated on every route. *Apply to all routes*
-writes the values into each route, and newly added routes inherit them
-automatically. This is a UI convenience only: the JSON schema is unchanged, so
-each route still carries its own copy of those fields and you can still make one
-route differ by hand-editing [watches.json](watches.json).
+A route is **four things**: origin, destination, trip length, on/off.
 
-Booking horizon (`max_horizon_days`, effectively always 300) is no longer shown
-in the UI — it's still read from the JSON and still clips windows automatically.
+```
+  [BNE] → [NRT]     [12] days     (on)   ×
+  27 searches per run · every 9 days · 22 Oct 2026 – 19 Jun 2027
+```
 
-Tick the checkboxes to select any number of routes, and a bar appears to
-enable, pause, duplicate or delete them together. Duplicate is the quickest way
-to add a route: copy an existing one and change the destination.
+Everything else is either derived or shared, which is why it isn't on the form:
 
-### Adding a second route — and the budget it costs
+| Was a field | Now |
+|---|---|
+| `label`, `id` | Derived from the airport codes (`BNE`+`NRT` → `bne-nrt`) |
+| `step_days` | Computed from your budget and route count |
+| `days_from_now_min/max` | Shared default, 60–300 days |
+| `trip_length_days.min/max` | One number — a range breaks price comparability |
+| passengers, cabin, stops, currency, market | Shared `defaults` in watches.json |
+| `hard_ceiling`, `never_alert_above` | Removed entirely |
 
-Multi-route is already supported: `watches` is a list, and every run iterates all
-enabled entries. Select the existing route, hit **Duplicate**, then change the
-destination, ID and label. Nothing else needs touching.
+The header shows what the whole watchlist costs and how much of the monthly cap
+it uses. Add a route and watch every route's sampling loosen to compensate — the
+panel gets those numbers **from the bot itself**, not from JavaScript that could
+drift out of step with it.
 
-The catch is quota, not code. The current BNE→NRT watch samples 41 dates per run
-= **~176 of your 250 free searches/month**, leaving only ~74/month (~17 per run)
-for everything else. A second route at the same density would put you at ~350 and
-the bot would refuse to run. So a second route means one of:
+### Why a local server instead of double-clicking the HTML
 
-- **Coarsen both.** Step 5 → 9 on each: ~23 probes each, ~197/month total.
-- **Keep Tokyo dense, sample the new route thinly.** Leave Tokyo at step 5, set
-  the new route to step 12 (~17 probes): ~249/month. Fits, but with no headroom.
-- **Narrow the new route's window.** A 90–200 day window at step 5 is 23 probes
-  rather than 41 — good when you only care about one season.
-- **Pause Tokyo** while you watch something else.
+A `file://` page isn't allowed to read local files without a picker, which is why
+the old panel opened blank showing default values and made you hunt for
+`watches.json` every session. Serving it from `127.0.0.1` removes that: your
+routes are there when it opens and saves land straight on disk. It's
+[stdlib-only](flightbot/ui_server.py) — no Flask, no new dependencies — and binds
+to localhost, so nothing off your machine can reach it.
 
-The header's budget strip does this arithmetic live as you type, and turns red
-when you're over cap — set the step by watching that number rather than guessing.
+Edits are validated by **loading them exactly the way a run would** before
+anything is written. A watchlist that wouldn't parse can't reach disk, so the
+scheduled job can't be broken from the UI.
 
-The header keeps a live **search budget** — cost per run, monthly total, and
-whether it fits your cap, plus what share of departure dates you're actually
-sampling. Lower the step and watch both climb. Problems (duplicate IDs, inverted windows,
-rules that could never fire) show a `!` beside the route and are spelled out in
-the detail pane, and saving is blocked until they're fixed.
-
-Firefox and Safari can't write files directly, so *Save* there downloads a copy
-you drop into the project folder yourself. Everything else works the same.
-
-You can also just hand-edit [watches.json](watches.json) — every field has a
-`_note` sibling explaining it, and the UI preserves those notes when it saves.
-Use real airport codes (`NRT`, `HND`), **not** metro codes like `TYO`, which
-return nothing. Each new route multiplies your search spend.
+You can still hand-edit [watches.json](watches.json) — every field has a `_note`
+sibling explaining it. Use real airport codes (`NRT`, `HND`), **not** metro codes
+like `TYO`, which return nothing.
 
 ## Commands
 
 ```bash
 python check.py                  # normal run
+python check.py --ui             # add/remove routes in the browser
 python check.py --demo           # fixture data, no key, no credits
 python check.py --dry-run        # check + print, never email or save state
-python check.py --watch bne-tokyo  # just one route
+python check.py --watch bne-nrt  # just one route
 python check.py --force-notify   # re-alert current deals, ignore cooldown
 python check.py --limit 6        # only the first 6 dates - cheap live smoke test
 ```
@@ -251,11 +246,12 @@ python check.py --limit 6        # only the first 6 dates - cheap live smoke tes
 
 ```
 check.py              entry point
-watches.json          your routes and thresholds
+watches.json          your routes, plus shared defaults and the budget
 state.json            memory: alert history + monthly search spend
-ui/index.html         the control panel - open in Chrome/Edge
+ui/index.html         the control panel - served by --ui
 flightbot/
-  config.py           settings, watchlist loading, date sampling
+  config.py           settings, watchlist loading, sampling planner
+  ui_server.py        localhost server behind --ui (stdlib only)
   provider.py         SerpApi client + the demo fixture provider
   evaluate.py         the is-this-a-deal logic
   state.py            cooldown + budget tracking
