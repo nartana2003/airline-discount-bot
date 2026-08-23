@@ -106,19 +106,53 @@ h1 { font-size: 21px; margin: 0; letter-spacing: -.02em; font-weight: 680; }
 .card.bad { border-color: var(--bad); }
 
 .card-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.airports { display: flex; align-items: center; gap: 8px; }
-.arrow { color: var(--ink-3); font-size: 16px; }
+.airports { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; }
+.arrow { color: var(--ink-3); font-size: 16px; flex: none; }
 
 input[type=text], input[type=number] {
   font: inherit; color: var(--ink); background: var(--field);
   border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px;
 }
 input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
-.code {
-  width: 78px; text-transform: uppercase; text-align: center;
-  font: 600 16px/1.2 var(--mono); letter-spacing: .06em; padding: 9px 6px;
+
+/* ---------- airport picker ---------- */
+.ap { position: relative; flex: 1 1 0; min-width: 0; }
+.ap input {
+  width: 100%; padding-right: 52px; text-overflow: ellipsis;
 }
-.code.bad { border-color: var(--bad); }
+.ap .badge {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font: 600 11.5px var(--mono); letter-spacing: .06em; pointer-events: none;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 5px; padding: 2px 6px;
+}
+.ap.bad input { border-color: var(--bad); }
+.ap.bad .badge { background: var(--bad-bg); color: var(--bad); }
+
+.ap-list {
+  position: absolute; z-index: 20; top: calc(100% + 5px); left: 0; right: 0;
+  background: var(--card); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(16,20,30,.16); overflow: hidden auto; max-height: 264px;
+  display: none;
+}
+.ap-list.open { display: block; }
+.ap-opt {
+  display: flex; align-items: baseline; gap: 9px; padding: 8px 11px; cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.ap-opt:last-child { border-bottom: 0; }
+.ap-opt.on { background: var(--accent-soft); }
+.ap-opt .c {
+  font: 650 12px var(--mono); letter-spacing: .05em; color: var(--accent);
+  flex: none; width: 34px;
+}
+.ap-opt .t { min-width: 0; flex: 1; }
+.ap-opt .p { font-size: 13.5px; font-weight: 600; }
+.ap-opt .s {
+  font-size: 12px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ap-none { padding: 14px 12px; font-size: 13px; color: var(--ink-3); text-align: center; }
 .trip { width: 62px; text-align: center; font-variant-numeric: tabular-nums; }
 .unit { font-size: 13.5px; color: var(--ink-2); }
 
@@ -207,6 +241,39 @@ let doc = null;
 let summary = null;
 let saveTimer = null;
 
+// Airport reference data: [code, city, country, name] x ~6000, served locally.
+// Metro codes (TYO, LON, NYC) are stripped at build time - the API accepts them
+// and returns zero flights, so they must not be selectable.
+let AIRPORTS = [];
+let BY_CODE = new Map();
+
+// Islands, regions and old names people actually type, which match no city
+// field. Without these, "bali" finds Balikesir and Balikpapan by prefix and
+// buries Denpasar, whose only "Bali" is inside the airport name.
+const ALIASES = {
+  bali: "DPS", fiji: "NAN", hawaii: "HNL", okinawa: "OKA", maldives: "MLE",
+  santorini: "JTR", mykonos: "JMK", crete: "HER", sicily: "CTA",
+  tuscany: "FLR", saigon: "SGN", "ho chi minh": "SGN", bombay: "BOM",
+  calcutta: "CCU", madras: "MAA", peking: "PEK", rangoon: "RGN",
+  bangalore: "BLR", kiev: "KBP", "gold coast": "OOL", "new york": "JFK",
+};
+
+// Rough importance order, used only to break ties. A plain yes/no hub flag left
+// "London" sorting alphabetically and putting Gatwick above Heathrow; ranking
+// by position puts the airport someone means first.
+const HUB_ORDER = ("ATL PEK LHR HND NRT DXB LAX CDG JFK AMS FRA IST SIN ICN HKG BKK SYD "
+  + "MEL BNE DFW DEN CAN KUL MAD SFO SEA MUC ORD YYZ PER AKL KIX DOH AUH DEL BOM MNL CGK "
+  + "SGN HAN TPE PVG SZX CTU MEX GRU EZE SCL LIM BOG YVR YUL BCN FCO LIS ZRH VIE CPH ARN "
+  + "OSL HEL DUB BRU MAN ATH TLV JED RUH CAI JNB CPT NBO ADD LOS ACC DPS HKT CNX REP PNH "
+  + "KTM DAC CMB MLE NAN HNL OKA CTA EDI GLA LGW STN SAW OTP PRG BUD WAW KRK SVO LED HAM "
+  + "DUS STR BER CGN NCE LYS MRS TLS NAP VCE MXP BLQ FLR PMI AGP VLC SVQ OPO FAO HER RHO "
+  + "CFU JTR JMK SKG ITM DMK ORY").split(/\s+/));
+const HUB_RANK = new Map(HUB_ORDER.map((c, i) => [c, i]));
+const hubBonus = (code) => {
+  const i = HUB_RANK.get(code);
+  return i === undefined ? 0 : 14 - Math.min(Math.floor(i / 25), 10);
+};
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
   { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
@@ -216,6 +283,43 @@ function pill(text, cls = "") {
   el.textContent = text;
   el.className = "save-pill " + cls;
 }
+
+// ---------------------------------------------------------------- airport search
+function searchAirports(q, limit = 8) {
+  q = q.trim().toLowerCase();
+  if (!q) return [];
+
+  const alias = ALIASES[q];
+  const scored = [];
+
+  for (const a of AIRPORTS) {
+    const [code, city, country, name] = a;
+    const lcCode = code.toLowerCase();
+    const lcCity = city.toLowerCase();
+    let score = 0;
+
+    if (lcCode === q) score = 100;                         // exact code
+    else if (alias === code) score = 95;                   // known nickname
+    else if (lcCity === q) score = 90;                     // exact city
+    else if (lcCity.startsWith(q)) score = 70;             // city prefix
+    else if (country.toLowerCase().startsWith(q)) score = 45;
+    else if (lcCity.includes(q)) score = 40;
+    else if (name.toLowerCase().includes(q)) score = 30;   // e.g. "Bali" -> DPS
+    else if (country.toLowerCase().includes(q)) score = 15;
+    else continue;
+
+    score += hubBonus(code);
+    scored.push([score, a]);
+  }
+
+  scored.sort((x, y) => y[0] - x[0] || x[1][1].localeCompare(y[1][1]));
+  return scored.slice(0, limit).map(s => s[1]);
+}
+
+const displayFor = (code) => {
+  const a = BY_CODE.get(code);
+  return a ? `${a[1]}, ${a[2]}` : (code || "");
+};
 
 // ---------------------------------------------------------------- validation
 function routeErrors(w) {
@@ -228,8 +332,8 @@ function routeErrors(w) {
   return out;
 }
 const errorText = {
-  origin: "Origin needs a 3-letter airport code.",
-  destination: "Destination needs a 3-letter airport code.",
+  origin: "Pick a departure airport.",
+  destination: "Pick a destination airport.",
   same: "Origin and destination are the same.",
   trip: "Trip length must be between 1 and 60 days.",
 };
@@ -262,6 +366,18 @@ function renderBudget() {
     </div>`;
 }
 
+// One airport field: a text box you search in, with the resolved code pinned
+// to the right so it's always visible without being something you have to know.
+function picker(key, code, placeholder, badCls) {
+  return `<div class="ap${badCls}" data-field="${key}">
+    <input type="text" data-k="${key}" autocomplete="off" spellcheck="false"
+           value="${esc(displayFor(code))}" placeholder="${esc(placeholder)}"
+           aria-label="${esc(placeholder)}">
+    ${code ? `<span class="badge">${esc(code)}</span>` : ""}
+    <div class="ap-list"></div>
+  </div>`;
+}
+
 function renderRoutes() {
   const el = $("routes");
   const list = doc?.watches || [];
@@ -280,11 +396,10 @@ function renderRoutes() {
     return `<div class="card ${w.enabled === false ? "off" : ""} ${errs.length ? "bad" : ""}" data-i="${i}">
       <div class="card-main">
         <div class="airports">
-          <input class="code${bad("origin")}" data-k="origin" maxlength="3"
-                 value="${esc(w.origin)}" placeholder="BNE" aria-label="Origin airport code">
+          ${picker("origin", w.origin, "From — city or airport", bad("origin"))}
           <span class="arrow">→</span>
-          <input class="code${bad("destination")}${bad("same")}" data-k="destination" maxlength="3"
-                 value="${esc(w.destination)}" placeholder="NRT" aria-label="Destination airport code">
+          ${picker("destination", w.destination, "To — city or airport",
+                   bad("destination") + bad("same"))}
         </div>
         <input type="number" class="trip${bad("trip")}" data-k="trip_days" min="1" max="60"
                value="${+w.trip_days || 12}" aria-label="Trip length in days">
@@ -325,18 +440,55 @@ function render() {
 }
 
 // ---------------------------------------------------------------- server I/O
+/** fetch + parse JSON, but report what actually came back when it isn't JSON.
+ *  A proxy, VPN or antivirus web shield that intercepts localhost returns its
+ *  own HTML or text here, and "Unexpected token" tells you nothing useful. */
+async function getJSON(url, options) {
+  let r;
+  try {
+    r = await fetch(url, options);
+  } catch (err) {
+    throw new Error(`Couldn't reach the bot at ${location.host}. Is it still `
+      + `running in your terminal? (${err.message})`);
+  }
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const body = text.trim().slice(0, 120) || "(empty response)";
+    throw new Error(`${url} returned ${r.status} ${r.statusText} instead of JSON: `
+      + `"${body}". The page loaded, so the bot is running — something between `
+      + `your browser and it is filtering requests (proxy, VPN, or an antivirus `
+      + `web shield). Try a different browser, or python check.py --ui --port 8790.`);
+  }
+}
+
+async function loadAirports() {
+  try {
+    AIRPORTS = await getJSON("/airports.json");
+    BY_CODE = new Map(AIRPORTS.map(a => [a[0], a]));
+  } catch {
+    // Search is a convenience; typing a code by hand must still work without it.
+    AIRPORTS = []; BY_CODE = new Map();
+  }
+}
+
 async function load() {
   try {
-    const r = await fetch("/api/watches");
-    const data = await r.json();
+    await loadAirports();
+    const data = await getJSON("/api/watches");
     if (data.error) throw new Error(data.error);
     doc = data.doc;
     doc.watches ||= [];
     summary = data.summary;
     pill("Saved", "saved");
     render();
+    if (!AIRPORTS.length) {
+      $("banner").innerHTML = `<div class="banner">Airport search is unavailable
+        (ui/airports.json didn't load) — you can still type 3-letter codes.</div>`;
+    }
   } catch (err) {
-    $("banner").innerHTML = `<div class="banner">Couldn't load watches.json — ${esc(err.message)}</div>`;
+    $("banner").innerHTML = `<div class="banner">${esc(err.message)}</div>`;
     pill("Error", "error");
   }
 }
@@ -350,15 +502,15 @@ function scheduleSave() {
 
 async function save() {
   try {
-    const r = await fetch("/api/watches", {
+    const data = await getJSON("/api/watches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(doc),
     });
-    const data = await r.json();
-    if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
+    if (data.error) throw new Error(data.error);
     summary = data.summary;
     pill("Saved", "saved");
+    $("banner").innerHTML = "";
     render();
   } catch (err) {
     pill("Not saved", "error");
@@ -367,6 +519,43 @@ async function save() {
 }
 
 // ---------------------------------------------------------------- editing
+// ---------------------------------------------------------------- picker behaviour
+let openList = null;   // the .ap currently showing results
+let cursor = -1;       // highlighted option within it
+
+function closeList() {
+  openList?.querySelector(".ap-list")?.classList.remove("open");
+  openList = null;
+  cursor = -1;
+}
+
+function showList(ap, matches) {
+  const list = ap.querySelector(".ap-list");
+  if (!matches.length) {
+    list.innerHTML = `<div class="ap-none">No airport matches that.</div>`;
+  } else {
+    list.innerHTML = matches.map((a, i) => `
+      <div class="ap-opt ${i === cursor ? "on" : ""}" data-code="${a[0]}">
+        <span class="c">${esc(a[0])}</span>
+        <span class="t">
+          <div class="p">${esc(a[1])}, ${esc(a[2])}</div>
+          <div class="s">${esc(a[3])}</div>
+        </span>
+      </div>`).join("");
+  }
+  list.classList.add("open");
+  openList = ap;
+}
+
+function choose(ap, code) {
+  const card = ap.closest(".card");
+  const w = doc.watches[+card.dataset.i];
+  w[ap.dataset.field] = code;
+  closeList();
+  render();
+  scheduleSave();
+}
+
 $("routes").addEventListener("input", (e) => {
   const card = e.target.closest(".card");
   const key = e.target.dataset.k;
@@ -374,12 +563,68 @@ $("routes").addEventListener("input", (e) => {
   const w = doc.watches[+card.dataset.i];
 
   if (key === "origin" || key === "destination") {
-    w[key] = e.target.value.trim().toUpperCase();
-    e.target.classList.toggle("bad", !/^[A-Z]{3}$/.test(w[key]));
-  } else if (key === "trip_days") {
-    w.trip_days = +e.target.value;
+    const ap = e.target.closest(".ap");
+    const raw = e.target.value.trim();
+    // Typing a bare code still works for anyone who already knows it.
+    const asCode = raw.toUpperCase();
+    if (/^[A-Z]{3}$/.test(asCode) && BY_CODE.has(asCode)) {
+      w[key] = asCode;
+      scheduleSave();
+    } else {
+      w[key] = "";
+    }
+    cursor = -1;
+    showList(ap, searchAirports(raw));
+    return;   // no re-render mid-typing - it would blow away the field
   }
-  scheduleSave();
+
+  if (key === "trip_days") {
+    w.trip_days = +e.target.value;
+    scheduleSave();
+  }
+});
+
+$("routes").addEventListener("keydown", (e) => {
+  const ap = e.target.closest(".ap");
+  if (!ap || !openList) return;
+  const opts = [...ap.querySelectorAll(".ap-opt")];
+  if (!opts.length) return;
+
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    cursor = (cursor + (e.key === "ArrowDown" ? 1 : -1) + opts.length) % opts.length;
+    opts.forEach((o, i) => o.classList.toggle("on", i === cursor));
+    opts[cursor].scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    choose(ap, opts[cursor === -1 ? 0 : cursor].dataset.code);
+  } else if (e.key === "Escape") {
+    closeList();
+  }
+});
+
+$("routes").addEventListener("mousedown", (e) => {
+  const opt = e.target.closest(".ap-opt");
+  if (!opt) return;
+  e.preventDefault();  // keep focus so blur doesn't fire first
+  choose(opt.closest(".ap"), opt.dataset.code);
+});
+
+// Leaving a half-typed field resyncs it to whatever code is actually set, and
+// surfaces the inline error if that left it empty. Delayed so a click on an
+// option is handled first - blur fires before the click would land.
+$("routes").addEventListener("focusout", (e) => {
+  if (!e.target.closest(".ap")) return;
+  setTimeout(() => {
+    if (document.activeElement?.closest(".ap")) return;  // moved to the other field
+    closeList();
+    render();
+    scheduleSave();
+  }, 140);
+});
+
+document.addEventListener("mousedown", (e) => {
+  if (openList && !e.target.closest(".ap")) closeList();
 });
 
 // Checkboxes fire `change`, not `input`. Re-render so the card dims immediately.
@@ -404,9 +649,11 @@ $("routes").addEventListener("click", (e) => {
 
 $("add").onclick = () => {
   doc ||= { watches: [] };
-  doc.watches.push({ enabled: true, origin: "BNE", destination: "", trip_days: 12 });
+  // Inherit the origin you already fly from - it's the same every time.
+  const origin = doc.watches.at(-1)?.origin || "BNE";
+  doc.watches.push({ enabled: true, origin, destination: "", trip_days: 12 });
   render();
-  // Focus the empty destination so the next keystroke goes somewhere useful.
+  // Focus the empty destination so you can just start typing a city.
   const cards = document.querySelectorAll(".card");
   cards[cards.length - 1]?.querySelector('[data-k="destination"]')?.focus();
 };

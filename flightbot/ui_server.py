@@ -60,11 +60,11 @@ def _summary(raw: dict) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, cache: str = "no-store") -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         self.wfile.write(body)
 
@@ -79,6 +79,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, f"cannot read ui/index.html: {exc}".encode(), "text/plain")
                 return
             self._send(200, body, "text/html; charset=utf-8")
+            return
+
+        if self.path == "/airports.json":
+            try:
+                body = (UI_DIR / "airports.json").read_bytes()
+            except OSError as exc:
+                self._json(500, {"error": f"cannot read ui/airports.json: {exc}"})
+                return
+            # Static reference data - never changes between runs.
+            self._send(200, body, "application/json", cache="max-age=86400")
+            return
+
+        # Cheap liveness check. If the page can load but this can't, something
+        # between the browser and here is filtering requests.
+        if self.path == "/api/ping":
+            self._json(200, {"ok": True})
             return
 
         if self.path == "/api/watches":
@@ -135,7 +151,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(port: int = 8765, open_browser: bool = True) -> int:
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as exc:
+        print(f"could not start on port {port}: {exc}")
+        print(f"something else is probably using it - try: python check.py --ui --port {port + 1}")
+        return 1
+
     url = f"http://127.0.0.1:{port}/"
     print(f"Control panel: {url}")
     print(f"Editing: {config.WATCHES_PATH}")

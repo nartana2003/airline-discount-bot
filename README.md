@@ -227,8 +227,33 @@ anything is written. A watchlist that wouldn't parse can't reach disk, so the
 scheduled job can't be broken from the UI.
 
 You can still hand-edit [watches.json](watches.json) — every field has a `_note`
-sibling explaining it. Use real airport codes (`NRT`, `HND`), **not** metro codes
-like `TYO`, which return nothing.
+sibling explaining it.
+
+### Airport search
+
+You type a city, country or nickname; you don't hunt for codes. "Tokyo" gives
+Haneda and Narita, "bali" gives Denpasar, "saigon" gives Ho Chi Minh City.
+Typing a code you already know still works.
+
+**Metro codes are stripped from the list at build time.** `TYO`, `LON` and `NYC`
+are accepted by the API and return **zero flights** — verified live — so the
+picker must not let you choose one.
+
+`ui/airports.json` is 6,071 airports (337 KB), built from the
+[OpenFlights](https://openflights.org/data.html) airport database, which is
+licensed **ODbL** and is itself largely sourced from the public-domain
+[OurAirports](https://ourairports.com/data/). Attribution is required if you
+redistribute it — that's what this section is. To rebuild:
+
+```bash
+curl -o airports.dat https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat
+# then filter to rows with a 3-letter IATA code and type == "airport",
+# dropping the metro codes, into [code, city, country, name] tuples.
+```
+
+If you'd rather not carry an ODbL file in a public repo at all, OurAirports
+publishes the same information in the public domain and can be filtered the same
+way — it just needs more work, since it includes heliports and closed fields.
 
 ## Commands
 
