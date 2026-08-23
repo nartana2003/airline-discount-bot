@@ -87,6 +87,47 @@ def read(path: Path | None = None) -> Iterator[dict]:
                 continue
 
 
+def since(after: str | None, path: Path | None = None) -> list[dict]:
+    """Rows recorded strictly after the ISO timestamp `after`.
+
+    ISO-8601 UTC strings sort lexicographically in time order, so this is a
+    string comparison rather than date parsing - and a malformed `at` simply
+    fails to match instead of raising.
+    """
+    rows = list(read(path))
+    if not after:
+        return rows
+    return [r for r in rows if str(r.get("at", "")) > after]
+
+
+def digest(rows: list[dict]) -> dict:
+    """Roll rows up into what a periodic 'still alive' report needs to say."""
+    priced = [r for r in rows if isinstance(r.get("price"), (int, float))]
+    runs = sorted({r["at"] for r in rows if r.get("at")})
+
+    per_route: dict[str, dict] = {}
+    for r in priced:
+        best = per_route.get(r["watch"])
+        if best is None or r["price"] < best["price"]:
+            per_route[r["watch"]] = r
+
+    return {
+        "runs": len(runs),
+        "first_run": runs[0] if runs else None,
+        "last_run": runs[-1] if runs else None,
+        "searches": len(rows),
+        "priced": len(priced),
+        "empty": len(rows) - len(priced),
+        "deals": sum(1 for r in rows if r.get("deal")),
+        "levels": {
+            lv: sum(1 for r in priced if (r.get("level") or "?") == lv)
+            for lv in sorted({(r.get("level") or "?") for r in priced})
+        },
+        # cheapest row per route, cheapest route first
+        "routes": sorted(per_route.values(), key=lambda r: r["price"]),
+    }
+
+
 def summary(path: Path | None = None) -> dict:
     """Cheap overview of what's accumulated so far."""
     rows = list(read(path))

@@ -234,6 +234,40 @@ gap between runs** (weekly = 168h) or every run re-alerts the same fare.
 
 `--force-notify` ignores all of the above and re-sends every current deal.
 
+## Making silence mean something
+
+This bot is designed to be quiet. But a run that finds nothing looks **exactly
+like** a broken SMTP password, an expired API key, or a workflow that quietly
+stopped firing. You could go three months assuming fares were just high.
+
+So once a month — on the first run of each calendar month — it emails you
+whether or not there's anything to report:
+
+```
+Still watching. Nothing here needs your attention.
+
+01 Sep 2026 – 22 Sep 2026   4 runs, 208 searches
+
+Cheapest seen on each route:
+  bne-nrt   AUD 995    2027-03-05 -> 2027-03-17   (Google: typical)
+  bne-hnd   AUD 1,240  2027-03-05 -> 2027-03-17   (Google: typical)
+
+Nothing was rated 'low', so nothing was emailed.
+Google rated what it saw: 4 typical.
+```
+
+It costs **no extra searches** — it's assembled entirely from
+[prices.jsonl](prices.jsonl), which the run already wrote. It covers everything
+since the last digest, so a missed run widens the window rather than losing the
+period. And it names the cheapest fare seen even when nothing qualified, which
+tells you whether the route is genuinely expensive or the bot has gone deaf.
+
+Send one now rather than waiting for the month to turn:
+
+```bash
+python check.py --digest
+```
+
 ## The price record
 
 `state.json` remembers what you were *told about*. [prices.jsonl](prices.jsonl)
@@ -376,6 +410,7 @@ python check.py --demo           # fixture data, no key, no credits
 python check.py --dry-run        # check + print, never email or save state
 python check.py --watch bne-nrt  # just one route
 python check.py --force-notify   # re-alert current deals, ignore cooldown
+python check.py --digest         # send the monthly 'still watching' summary now
 python check.py --limit 6        # only the first 6 dates - cheap live smoke test
 ```
 

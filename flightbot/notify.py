@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import smtplib
 import ssl
+from datetime import datetime
 from email.message import EmailMessage
 from html import escape as esc
 
@@ -255,6 +256,129 @@ def _subject(watch: Watch, verdicts: list[Verdict]) -> str:
     if len(verdicts) > 1:
         return f"{head} +{len(verdicts) - 1} more"
     return f"{head} ({q.probe.trip_days}d)"
+
+
+# ---------------------------------------------------------------- digest
+# Deliberately plain, and deliberately different from an alert: this message
+# is not asking you to do anything. Its whole job is to make the difference
+# between "nothing was cheap" and "the bot has been broken for six weeks"
+# something you can see instead of assume.
+
+def _digest_when(iso: str | None) -> str:
+    if not iso:
+        return "—"
+    try:
+        return datetime.fromisoformat(iso).strftime("%d %b %Y")
+    except ValueError:
+        return iso[:10]
+
+
+def _digest_subject(d: dict) -> str:
+    best = d["routes"][0] if d["routes"] else None
+    head = "Flight Watch · still running"
+    if d["deals"]:
+        return f"{head} · {d['deals']} alert{'' if d['deals'] == 1 else 's'} sent"
+    if best:
+        return f"{head} · nothing cheap · best was {best['currency']} {best['price']:,.0f}"
+    return f"{head} · no fares found"
+
+
+def _digest_plain(d: dict, quota: str) -> str:
+    lines = [
+        "Still watching. Nothing here needs your attention.",
+        "",
+        f"{_digest_when(d['first_run'])} – {_digest_when(d['last_run'])}   "
+        f"{d['runs']} run{'' if d['runs'] == 1 else 's'}, {d['searches']} searches",
+        "",
+    ]
+    if d["routes"]:
+        lines.append("Cheapest seen on each route:")
+        for r in d["routes"]:
+            lines.append(f"  {r['watch']}   {r['currency']} {r['price']:,.0f}"
+                         f"   {r['depart']} -> {r['ret']}   (Google: {r['level'] or '?'})")
+    else:
+        lines.append("No priced fares were returned at all this period.")
+    lines.append("")
+
+    if d["deals"]:
+        lines.append(f"{d['deals']} fare(s) rated 'low' and were emailed to you.")
+    else:
+        rated = ", ".join(f"{n} {lv}" for lv, n in d["levels"].items()) or "none"
+        lines.append(f"Nothing was rated 'low', so nothing was emailed. "
+                     f"Google rated what it saw: {rated}.")
+    if d["empty"]:
+        lines.append(f"{d['empty']} date pair(s) returned no fares at all.")
+    lines += ["", quota, "",
+              "-- ",
+              "This message exists so that silence means 'still working'",
+              "rather than 'possibly broken'. It arrives once a month."]
+    return "\n".join(lines)
+
+
+def _digest_html(d: dict, quota: str) -> str:
+    rows = "".join(
+        f'<tr>'
+        f'<td style="padding:7px 14px 7px 0;font-size:14px;color:{INK};font-weight:600">'
+        f'{esc(r["watch"])}</td>'
+        f'<td style="padding:7px 14px 7px 0;font-size:15px;color:{INK};'
+        f'font-weight:700;white-space:nowrap">{r["currency"]} {r["price"]:,.0f}</td>'
+        f'<td style="padding:7px 14px 7px 0;font-size:13px;color:{INK_2};white-space:nowrap">'
+        f'{esc(r["depart"])} &rarr; {esc(r["ret"])}</td>'
+        f'<td style="padding:7px 0;font-size:12.5px;color:{INK_3}">'
+        f'{esc(r["level"] or "?")}</td>'
+        f'</tr>'
+        for r in d["routes"]
+    )
+    table = (f'<table role="presentation" cellpadding="0" cellspacing="0" '
+             f'style="width:100%;margin:6px 0 0">{rows}</table>') if rows else (
+             f'<div style="font-size:14px;color:{INK_2}">'
+             f'No priced fares were returned at all this period.</div>')
+
+    verdict = (f'{d["deals"]} fare(s) rated &ldquo;low&rdquo; and were emailed to you.'
+               if d["deals"] else
+               'Nothing was rated &ldquo;low&rdquo;, so nothing was emailed.')
+
+    return (
+        f'<!doctype html><html><body style="margin:0;padding:0;background:#f6f7f9">'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="background:#f6f7f9"><tr><td align="center" style="padding:24px 12px">'
+        f'<table role="presentation" width="560" cellpadding="0" cellspacing="0" '
+        f'style="width:100%;max-width:560px;font-family:{FONT}">'
+        f'<tr><td style="padding:0 0 6px">'
+        f'<div style="font-size:18px;font-weight:700;color:{INK}">Still watching</div>'
+        f'<div style="font-size:13px;color:{INK_2};margin-top:4px">'
+        f'{esc(_digest_when(d["first_run"]))} &ndash; {esc(_digest_when(d["last_run"]))}'
+        f' &middot; {d["runs"]} run{"" if d["runs"] == 1 else "s"}'
+        f' &middot; {d["searches"]} searches</div></td></tr>'
+        f'<tr><td style="padding:16px 0 0">'
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        f'color:{INK_3};text-transform:uppercase">Cheapest seen</div>{table}</td></tr>'
+        f'<tr><td style="padding:18px 0 0">'
+        f'<div style="font-size:13.5px;color:{INK_2};line-height:1.55">{verdict}</div>'
+        f'<div style="font-size:12.5px;color:{INK_3};margin-top:6px">{esc(quota)}</div>'
+        f'</td></tr>'
+        f'<tr><td style="padding:20px 0 0">'
+        f'<div style="font-size:12px;color:{INK_3};line-height:1.5;'
+        f'border-top:1px solid {LINE};padding-top:12px">'
+        f'This message exists so that silence means &ldquo;still working&rdquo; rather '
+        f'than &ldquo;possibly broken&rdquo;. It arrives once a month.</div>'
+        f'</td></tr></table></td></tr></table></body></html>'
+    )
+
+
+def send_digest(settings: EmailSettings, d: dict, quota: str) -> None:
+    """Raises on failure so the caller can report it rather than fail silently."""
+    msg = EmailMessage()
+    msg["Subject"] = _digest_subject(d)
+    msg["From"] = settings.user
+    msg["To"] = settings.to
+    msg.set_content(_digest_plain(d, quota))
+    msg.add_alternative(_digest_html(d, quota), subtype="html")
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL(settings.host, settings.port, context=context) as server:
+        server.login(settings.user, settings.password)
+        server.send_message(msg)
 
 
 def send_email(settings: EmailSettings, watch: Watch, verdicts: list[Verdict],

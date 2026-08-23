@@ -30,6 +30,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="print results but never send email or write state")
     p.add_argument("--force-notify", action="store_true",
                    help="ignore the cooldown and re-send alerts for any current deal")
+    p.add_argument("--digest", action="store_true",
+                   help="send the monthly 'still watching' summary now, without "
+                        "waiting for the first run of next month")
     p.add_argument("--no-colour", action="store_true", help="plain output, no ANSI codes")
     p.add_argument("--limit", type=int, metavar="N",
                    help="only search the first N dates per watch - a cheap live "
@@ -180,6 +183,29 @@ def main(argv: list[str] | None = None) -> int:
         total = history.summary(history_path)
         print(f"\nlogged {logged} price(s) to {history_path.name} "
               f"({total['rows']} rows over {total['runs']} run(s))")
+
+    # The monthly "still watching" note. Sent on the first run of each calendar
+    # month, covering everything seen since the last one - so a missed run
+    # widens the window rather than losing the period.
+    if not args.dry_run and not args.demo and (args.digest or state.digest_due()):
+        d = history.digest(history.since(state.last_digest_at(), history_path))
+        if d["searches"] == 0 and not args.digest:
+            pass  # nothing has been recorded yet; wait for a run with data
+        else:
+            settings = config.EmailSettings.from_env()
+            quota = (f"Budget: {sum(len(dates_for(w)) for w in selected)} searches a run, "
+                     f"{budget.monthly_search_cap} a month.")
+            if not settings.configured:
+                print("digest not sent - email is not configured", file=sys.stderr)
+            else:
+                try:
+                    notify.send_digest(settings, d, quota)
+                    state.record_digest()
+                    print(f"sent the monthly digest to {settings.to} "
+                          f"({d['runs']} run(s), {d['searches']} searches)")
+                except OSError as exc:
+                    print(f"digest failed to send: {exc}", file=sys.stderr)
+                    exit_code = 1
 
     if searches_used:
         # Report SerpApi's figure, not the local tally - they can disagree and

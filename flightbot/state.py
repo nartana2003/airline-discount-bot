@@ -51,6 +51,23 @@ class State:
         for old in sorted(spend)[:-3]:
             del spend[old]
 
+    # --- periodic "still alive" digest -----------------------------------
+    # A run that finds nothing looks exactly like a broken key, a dead SMTP
+    # password, or a workflow that stopped firing. Once a month the bot says
+    # so out loud, which is what turns silence into a fact rather than a
+    # guess. Keyed by calendar month so it lands on the first run of each.
+
+    def digest_due(self) -> bool:
+        return self.data.setdefault("digest", {}).get("month") != _now().strftime("%Y-%m")
+
+    def last_digest_at(self) -> str | None:
+        return self.data.setdefault("digest", {}).get("at")
+
+    def record_digest(self) -> None:
+        self.data.setdefault("digest", {}).update(
+            {"month": _now().strftime("%Y-%m"), "at": _now().isoformat()}
+        )
+
     # --- alert de-duplication -------------------------------------------
 
     def should_notify(self, verdict: Verdict, cooldown_hours: float | None,
