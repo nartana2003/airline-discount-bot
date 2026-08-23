@@ -286,7 +286,11 @@ def load_watchlist_data(raw: dict) -> tuple[list[Watch], Budget]:
                 days_from_now_max=int(win.get("days_from_now_max", MAX_HORIZON_DAYS)),
                 adults=int(d.get("adults", 1)),
                 travel_class=int(d.get("travel_class", 1)),
-                stops=int(d.get("stops", 0)),
+                # The one shared setting a route may override. Nonstop is the
+                # right default for a route that HAS direct flights, and a
+                # route that doesn't would otherwise return nothing on every
+                # search while still spending a credit each time.
+                stops=int(e.get("stops", d.get("stops", 0))),
                 currency=d.get("currency", "AUD"),
                 gl=market.get("gl", "au"),
                 hl=market.get("hl", "en"),

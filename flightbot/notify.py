@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
 from html import escape as esc
+from urllib.parse import quote
 
 from .config import EmailSettings, Watch
 from .evaluate import Verdict
@@ -456,6 +457,32 @@ def _labels(watches: list[Watch] | None) -> dict[str, str]:
     return {w.id: f"{w.origin} → {w.destination}" for w in (watches or [])}
 
 
+def _search_url(origin: str, dest: str, depart: str, ret: str) -> str:
+    """A Google Flights link built from the route and dates alone.
+
+    The API hands back a URL per search and it is stored with each quote, but
+    rows written before that field existed have none - and a digest whose
+    every fare is a dead end is the thing worth avoiding. This is derivable
+    from what every row has always carried, so the button is never missing.
+    """
+    q = f"Flights from {origin} to {dest} on {depart} through {ret}"
+    return "https://www.google.com/travel/flights?q=" + quote(q)
+
+
+def _row_url(r: dict, watches: list[Watch] | None) -> str:
+    """The stored link if there is one, otherwise one built from the route."""
+    if r.get("url"):
+        return r["url"]
+    origin, dest = r.get("from_id"), r.get("to_id")
+    if not (origin and dest):
+        w = next((w for w in (watches or []) if w.id == r.get("watch")), None)
+        if w:
+            origin, dest = w.origin, w.destination
+    if origin and dest and r.get("depart") and r.get("ret"):
+        return _search_url(origin, dest, r["depart"], r["ret"])
+    return ""
+
+
 def _digest_subject(d: dict, labels: dict[str, str] | None = None) -> str:
     """Say the useful thing, not the internal thing.
 
@@ -496,7 +523,8 @@ def _row_detail(r: dict) -> str:
     return " · ".join(bits)
 
 
-def _digest_plain(d: dict, quota: str, labels: dict[str, str] | None = None) -> str:
+def _digest_plain(d: dict, quota: str, labels: dict[str, str] | None = None,
+                  watches: list[Watch] | None = None) -> str:
     labels = labels or {}
     lines = [
         "Still watching.",
@@ -516,8 +544,9 @@ def _digest_plain(d: dict, quota: str, labels: dict[str, str] | None = None) -> 
             detail = _row_detail(r)
             if detail:
                 lines.append(f"    {detail}")
-            if r.get("url"):
-                lines.append(f"    {r['url']}")
+            url = _row_url(r, watches)
+            if url:
+                lines.append(f"    {url}")
             lines.append("")
     else:
         lines += ["Not one search returned a fare this month.",
@@ -542,7 +571,8 @@ def _digest_plain(d: dict, quota: str, labels: dict[str, str] | None = None) -> 
     return "\n".join(lines)
 
 
-def _digest_html(d: dict, quota: str, labels: dict[str, str] | None = None) -> str:
+def _digest_html(d: dict, quota: str, labels: dict[str, str] | None = None,
+                 watches: list[Watch] | None = None) -> str:
     labels = labels or {}
 
     cards = []
@@ -552,12 +582,13 @@ def _digest_html(d: dict, quota: str, labels: dict[str, str] | None = None) -> s
         detail_html = (
             f'<div style="font-size:13px;color:{INK_2};margin-top:7px">{esc(detail)}</div>'
             if detail else "")
+        url = _row_url(r, watches)
         button = (
-            f'<div style="margin-top:14px"><a href="{esc(r["url"])}" '
+            f'<div style="margin-top:14px"><a href="{esc(url)}" '
             f'style="display:inline-block;padding:9px 18px;border-radius:8px;'
             f'background:{ACCENT};color:#ffffff;font-size:13.5px;font-weight:600;'
             f'text-decoration:none">View on Google Flights</a></div>'
-            if r.get("url") else "")
+            if url else "")
         level = r.get("level")
         chip = (f'<span style="display:inline-block;padding:3px 9px;border-radius:99px;'
                 f'background:{GOOD_BG};color:{GOOD};font-size:11.5px;font-weight:700;'
@@ -646,8 +677,8 @@ def send_digest(settings: EmailSettings, d: dict, quota: str,
     msg["Subject"] = _digest_subject(d, labels)
     msg["From"] = settings.user
     msg["To"] = settings.to
-    msg.set_content(_digest_plain(d, quota, labels))
-    msg.add_alternative(_digest_html(d, quota, labels), subtype="html")
+    msg.set_content(_digest_plain(d, quota, labels, watches))
+    msg.add_alternative(_digest_html(d, quota, labels, watches), subtype="html")
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(settings.host, settings.port, context=context) as server:
