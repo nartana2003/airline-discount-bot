@@ -75,18 +75,13 @@ def _trip_summary(watch: Watch, sep: str = " · ") -> str:
 
 
 def _scope_line(searched: list[Verdict] | None) -> str:
-    """State how much was actually looked at.
+    """Deliberately empty.
 
-    A run samples dates rather than covering them, so "cheapest" means cheapest
-    of what was checked. Without this the email implies a whole-year sweep.
+    This used to spell out how many dates were sampled and over what range, to
+    stop "cheapest" implying a whole-year sweep. It was a paragraph of caveat
+    above every alert, and the caveat is in the README where it belongs.
     """
-    if not searched:
-        return ""
-    days = sorted(v.quote.depart_date for v in searched)
-    n = len(searched)
-    return (f"Cheapest of {n} departure date{'' if n == 1 else 's'} checked "
-            f"between {days[0]:%d %b} and {days[-1]:%d %b %Y} — not every date "
-            f"in that range was searched.")
+    return ""
 
 
 def _google_verdict(v: Verdict) -> str:
@@ -180,9 +175,7 @@ def _plain_body(groups: list[RouteAlert]) -> str:
         if gi:
             lines += ["", "-" * 56, ""]
         lines += _plain_route(g)
-    lines.append("-- ")
-    lines.append("Your flight watch bot. Prices move; check before booking.")
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _plain_route(g: RouteAlert) -> list[str]:
@@ -392,11 +385,7 @@ def _html_body(groups: list[RouteAlert]) -> str:
         f'<table role="presentation" width="600" cellpadding="0" cellspacing="0" '
         f'style="width:100%;max-width:600px;font-family:{FONT}">'
         f'{lead}{sections}'
-        f'<tr><td style="padding:14px 4px 0">'
-        f'<div style="font-size:12px;color:{INK_3};line-height:1.5">'
-        f'Prices move &mdash; check before booking. Sent by your flight watch bot; '
-        f'add or remove routes with <b>python check.py --ui</b>.</div>'
-        f'</td></tr></table></td></tr></table></body></html>'
+        f'</table></td></tr></table></body></html>'
     )
 
 
@@ -523,16 +512,10 @@ def _row_detail(r: dict) -> str:
     return " · ".join(bits)
 
 
-def _digest_plain(d: dict, quota: str, labels: dict[str, str] | None = None,
+def _digest_plain(d: dict, labels: dict[str, str] | None = None,
                   watches: list[Watch] | None = None) -> str:
     labels = labels or {}
-    lines = [
-        "Still watching.",
-        "",
-        f"{d['runs']} run{'' if d['runs'] == 1 else 's'} · {d['searches']} searches · "
-        f"{_digest_when(d['first_run'])} – {_digest_when(d['last_run'])}",
-        "",
-    ]
+    lines = ["Still watching.", ""]
     if d["routes"]:
         lines.append("CHEAPEST SEEN")
         lines.append("")
@@ -553,25 +536,19 @@ def _digest_plain(d: dict, quota: str, labels: dict[str, str] | None = None,
                   "That usually means a bad airport code or an API problem,",
                   "not an expensive route — worth checking.", ""]
 
-    if d["deals"]:
-        n = d["deals"]
-        lines.append(f"You were emailed about {n} of these when {'it' if n == 1 else 'they'} "
-                     f"appeared.")
-    elif d["routes"]:
+    # No alert count - the inbox already said that. No quota line, no footer
+    # explaining why the mail exists. Only the quiet case needs a word, or the
+    # fares below look unexplained.
+    if not d["deals"] and d["routes"]:
         rated = ", ".join(f"{n} {lv}" for lv, n in d["levels"].items())
-        lines.append("Nothing hit 'low', so nothing was emailed — the fares above")
-        lines.append(f"are simply the cheapest seen. Google rated them: {rated}.")
+        lines.append(f"Nothing hit 'low' — these are just the cheapest seen. "
+                     f"Google rated them: {rated}.")
     if d["empty"]:
         lines.append(f"{d['empty']} date pair(s) came back with no fares at all.")
-
-    lines += ["", quota, "",
-              "-- ",
-              "A monthly note, so that silence means 'still working'",
-              "rather than 'possibly broken'."]
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip() + "\n"
 
 
-def _digest_html(d: dict, quota: str, labels: dict[str, str] | None = None,
+def _digest_html(d: dict, labels: dict[str, str] | None = None,
                  watches: list[Watch] | None = None) -> str:
     labels = labels or {}
 
@@ -628,14 +605,10 @@ def _digest_html(d: dict, quota: str, labels: dict[str, str] | None = None,
             f'expensive route &mdash; worth checking.</div>'
             f'</td></tr></table>')
 
-    if d["deals"]:
-        n = d["deals"]
-        note = (f'You were emailed about <b>{n}</b> of these when '
-                f'{"it" if n == 1 else "they"} appeared.')
-    elif d["routes"]:
+    if not d["deals"] and d["routes"]:
         rated = ", ".join(f"{c} {lv}" for lv, c in d["levels"].items())
-        note = (f'Nothing hit &ldquo;low&rdquo;, so nothing was emailed &mdash; the fares '
-                f'above are simply the cheapest seen. Google rated them: {esc(rated)}.')
+        note = (f'Nothing hit &ldquo;low&rdquo; &mdash; these are just the cheapest '
+                f'seen. Google rated them: {esc(rated)}.')
     else:
         note = ""
     if d["empty"]:
@@ -650,26 +623,16 @@ def _digest_html(d: dict, quota: str, labels: dict[str, str] | None = None,
         f'style="background:#f6f7f9"><tr><td align="center" style="padding:24px 12px">'
         f'<table role="presentation" width="560" cellpadding="0" cellspacing="0" '
         f'style="width:100%;max-width:560px;font-family:{FONT}">'
-        f'<tr><td style="padding:0 0 20px">'
+        f'<tr><td style="padding:0 0 18px">'
         f'<div style="font-size:20px;font-weight:700;color:{INK}">Still watching</div>'
-        f'<div style="font-size:13px;color:{INK_3};margin-top:5px">'
-        f'{d["runs"]} run{"" if d["runs"] == 1 else "s"} &middot; {d["searches"]} searches '
-        f'&middot; {esc(_digest_when(d["first_run"]))}&ndash;{esc(_digest_when(d["last_run"]))}'
-        f'</div></td></tr>'
-        f'<tr><td>{heading}{body}</td></tr>'
-        f'<tr><td style="padding:6px 0 0">{note_html}'
-        f'<div style="font-size:12px;color:{INK_3};margin-top:8px">{esc(quota)}</div>'
         f'</td></tr>'
-        f'<tr><td style="padding:20px 0 0">'
-        f'<div style="font-size:12px;color:{INK_3};line-height:1.5;'
-        f'border-top:1px solid {LINE};padding-top:12px">'
-        f'A monthly note, so that silence means &ldquo;still working&rdquo; rather than '
-        f'&ldquo;possibly broken&rdquo;.</div>'
-        f'</td></tr></table></td></tr></table></body></html>'
+        f'<tr><td>{heading}{body}</td></tr>'
+        f'<tr><td style="padding:6px 0 0">{note_html}</td></tr>'
+        f'</table></td></tr></table></body></html>'
     )
 
 
-def send_digest(settings: EmailSettings, d: dict, quota: str,
+def send_digest(settings: EmailSettings, d: dict,
                 watches: list[Watch] | None = None) -> None:
     """Raises on failure so the caller can report it rather than fail silently."""
     labels = _labels(watches)
@@ -677,8 +640,8 @@ def send_digest(settings: EmailSettings, d: dict, quota: str,
     msg["Subject"] = _digest_subject(d, labels)
     msg["From"] = settings.user
     msg["To"] = settings.to
-    msg.set_content(_digest_plain(d, quota, labels, watches))
-    msg.add_alternative(_digest_html(d, quota, labels, watches), subtype="html")
+    msg.set_content(_digest_plain(d, labels, watches))
+    msg.add_alternative(_digest_html(d, labels, watches), subtype="html")
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(settings.host, settings.port, context=context) as server:
