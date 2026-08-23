@@ -139,7 +139,10 @@ h1 em { font-style: italic; }
   min-height: 30px; display: block;
 }
 .ap.bad .code { color: var(--stamp); }
-.ap .code.empty { color: var(--ink-3); }
+/* NOT ".empty" - that is the no-routes card below, and the two collided:
+   a blank code inherited its 46px padding and border, inflating into a box
+   that pushed the search dropdown out of view. */
+.ap .code.blank { color: var(--ink-3); letter-spacing: -.02em; }
 .ap input {
   font: 400 14px/1.35 var(--serif); color: var(--ink-2); margin-top: 8px;
   width: 100%; border: 0; border-bottom: 1px dashed var(--line-2);
@@ -256,14 +259,14 @@ h1 em { font-style: italic; }
   font: 400 16px/1 var(--serif); color: var(--ink-2);
 }
 .add:hover { border-color: var(--ink); color: var(--ink); border-style: solid; }
-.empty {
+.no-routes {
   text-align: center; padding: 46px 24px; background: var(--card);
   border: 1px solid var(--line-2); border-radius: 3px; color: var(--ink-3);
 }
-.empty strong {
+.no-routes strong {
   display: block; font: 400 20px/1 var(--serif); color: var(--ink); margin-bottom: 7px;
 }
-.empty p { margin: 0; font-size: 13.5px; }
+.no-routes p { margin: 0; font-size: 13.5px; }
 
 /* ---------- misc ---------- */
 .foot-note { margin: 0; }
@@ -485,7 +488,7 @@ function renderBudget() {
 // from the selection rather than typed, so it reads as stamped, not editable.
 function picker(key, code, placeholder, badCls) {
   return `<div class="ap${badCls}" data-field="${key}">
-    <span class="code${code ? "" : " empty"}">${esc(code || "———")}</span>
+    <span class="code${code ? "" : " blank"}">${esc(code || "———")}</span>
     <input type="text" data-k="${key}" autocomplete="off" spellcheck="false"
            value="${esc(displayFor(code))}" placeholder="${esc(placeholder)}"
            aria-label="${esc(placeholder)}">
@@ -498,7 +501,7 @@ function renderRoutes() {
   const list = doc?.watches || [];
 
   if (!list.length) {
-    el.innerHTML = `<div class="empty">
+    el.innerHTML = `<div class="no-routes">
       <p><strong>No routes yet.</strong></p>
       <p>Add one below to start watching a fare.</p></div>`;
     return;
