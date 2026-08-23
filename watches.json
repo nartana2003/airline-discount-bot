@@ -15,8 +15,8 @@
     },
     "adults": 1,
     "travel_class": 1,
-    "stops": 1,
-    "_stops_note": "0 = any, 1 = nonstop only, 2 = 1 stop or fewer, 3 = 2 stops or fewer. Set to 1 on 24 Aug 2026: a BNE-Tokyo connection runs 20-25h against ~9h nonstop, so a cheap connecting fare is not really the same product. WATCH OUT: in the first live run, zero BNE-HND results were nonstop - if that route has no direct service, every HND search returns nothing and still costs a credit.",
+    "stops": 0,
+    "_stops_note": "0 = any, 1 = nonstop only, 2 = 1 stop or fewer, 3 = 2 stops or fewer. Left at 0 (any). Nonstop-only was tried live on 24 Aug 2026 and reverted: it cost AUD 45-200 more per fare on BNE-NRT, and BNE-HND returned ZERO results because Brisbane has no direct Haneda service - every search would have spent a credit for nothing. Any single route can still override this with its own \"stops\" key.",
     "currency": "AUD",
     "market": {
       "gl": "au",
@@ -46,9 +46,7 @@
       "enabled": true,
       "origin": "BNE",
       "destination": "HND",
-      "trip_days": 12,
-      "stops": 2,
-      "_stops_note": "Overrides the nonstop default. Verified live on 24 Aug 2026: BNE-HND returns ZERO results with stops=1, so nonstop-only would spend a credit per date and get nothing back. 2 = one stop or fewer, which keeps the sane connections and drops the two-stop marathons."
+      "trip_days": 12
     }
   ]
 }
