@@ -469,6 +469,8 @@ function renderRoutes() {
     return;
   }
 
+  const win = summary?.window || { days_from_now_min: 60, days_from_now_max: 300 };
+
   el.innerHTML = list.map((w, i) => {
     const errs = routeErrors(w);
     const info = summary?.routes?.[i];
@@ -494,8 +496,10 @@ function renderRoutes() {
       ${errs.length
         ? `<div class="card-err">${errs.map(e => esc(errorText[e])).join(" ")}</div>`
         : info && info.searches_per_run
-          ? `<div class="card-foot">
-               every <b>${info.step_days}</b> days
+          ? `<div class="card-foot" title="One search covers one exact date pair, so a run samples the window rather than covering it. The run itself happens weekly.">
+               Checks every <b>${ordinal(info.step_days)}</b> departure date
+               <span class="sep">·</span>
+               rolling <b>${win.days_from_now_min}–${win.days_from_now_max}</b> days ahead
                <span class="sep">·</span>
                ${esc(shortDate(info.first_depart))} – ${esc(info.last_depart)}
              </div>`
@@ -506,6 +510,13 @@ function renderRoutes() {
 
 // Drop the year off the start of a range that ends with one: "22 Oct – 19 Jun 2027".
 const shortDate = (s) => String(s || "").replace(/\s+\d{4}$/, "");
+
+// 5 -> "5th". The step is an interval between sampled dates, and "every 5 days"
+// reads as how often the bot runs, which is weekly and unrelated.
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
 
 function renderFootnote() {
   // Deliberately empty. Everything that was here - the window, the alert rule,
