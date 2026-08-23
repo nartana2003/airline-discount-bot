@@ -7,6 +7,11 @@
 # back after each run, and that commit is what gives the bot its memory
 # (alert cooldowns + monthly search count) between runs.
 state.demo.json
+
+# prices.jsonl is deliberately NOT ignored: it is the accumulating price
+# record, and the workflow commits it back after each run. The demo one is
+# invented fixture data and must never mix into it.
+prices.demo.jsonl
 __pycache__/
 *.pyc
 .venv/

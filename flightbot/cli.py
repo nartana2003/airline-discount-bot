@@ -6,7 +6,7 @@ import argparse
 import os
 import sys
 
-from . import config, notify
+from . import config, history, notify
 from . import provider as provider_mod
 from .evaluate import Verdict, evaluate
 from .provider import SearchError, build_provider
@@ -104,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
 
     exit_code = 0
     searches_used = 0
+    logged = 0
+    history_path = history.DEMO_HISTORY_PATH if args.demo else history.HISTORY_PATH
 
     for watch in selected:
         verdicts: list[Verdict] = []
@@ -118,6 +120,15 @@ def main(argv: list[str] | None = None) -> int:
             verdicts.append(evaluate(watch, quote))
 
         notify.print_results(watch, verdicts, colour=colour)
+
+        # Journal every quote before any alerting decision, so the record is
+        # what the run SAW - independent of what it chose to email, and still
+        # written if the email later fails.
+        if not args.dry_run:
+            try:
+                logged += history.record(verdicts, history_path)
+            except OSError as exc:
+                print(f"  could not write price history: {exc}", file=sys.stderr)
 
         deals = [
             v for v in verdicts
@@ -164,6 +175,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args.dry_run:
         state.record_searches(searches_used)
         state.save()
+
+    if logged:
+        total = history.summary(history_path)
+        print(f"\nlogged {logged} price(s) to {history_path.name} "
+              f"({total['rows']} rows over {total['runs']} run(s))")
 
     if searches_used:
         # Report SerpApi's figure, not the local tally - they can disagree and

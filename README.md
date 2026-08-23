@@ -1,7 +1,8 @@
 # Airline price watch bot
 
 Watches flight routes and emails you when a fare is genuinely cheap — not just
-when it moves. Currently watching 
+when it moves. Which routes it watches is up to you — add and remove them in
+the control panel.
 
 ## Try it right now
 
@@ -118,8 +119,8 @@ each route's share = that ÷ number of enabled routes
 step = the smallest gap that keeps a route inside its share
 ```
 
-One route: every 5th date, **49 searches per run**, ~211/month against a 240 cap.
-Add a second and both drop to every 9th date — 27 each, 232/month, still inside.
+One route: every 5th date, **46 searches per run**, ~198/month against a 240 cap.
+Add a second and both drop to every 9th date — 26 each, 224/month, still inside.
 **Adding a route makes every route sample more coarsely.** That's the honest
 trade of a fixed budget, and it happens automatically rather than silently
 overspending.
@@ -232,6 +233,45 @@ If you'd rather be reminded periodically about a fare that's still cheap, set
 gap between runs** (weekly = 168h) or every run re-alerts the same fare.
 
 `--force-notify` ignores all of the above and re-sends every current deal.
+
+## The price record
+
+`state.json` remembers what you were *told about*. [prices.jsonl](prices.jsonl)
+remembers what was **seen** — every fare the bot fetched, alerted or not, one
+JSON object per line:
+
+```json
+{"at":"2026-08-24T21:00:04+00:00","watch":"bne-nrt","depart":"2026-10-23",
+ "ret":"2026-11-04","trip_days":12,"price":1152.0,"currency":"AUD",
+ "level":"typical","typical_low":910,"typical_high":1420,
+ "airlines":["Jetstar"],"stops":0,"deal":false}
+```
+
+This costs **nothing extra** — the search is already paid for whether or not the
+fare turns out to be interesting. Thrown away, that data can never answer the
+questions that matter later:
+
+- Was that "low" fare actually cheap, judged against my own history?
+- Which weeks of the year is this route reliably cheapest?
+- Is Google's verdict any good on this route, or should I stop trusting it?
+
+None of those are answerable retrospectively, which is why it logs from the
+start. At two routes it's about 220 rows a month — a few hundred KB a year.
+
+The workflow commits it back after every run, same as `state.json`, so it
+accumulates rather than resetting. Dates with no fares on sale are recorded too
+(`"price": null`) — "nothing available" is a fact about the route, not a gap.
+
+Read it back with `flightbot.history.read()`, or any JSONL tool:
+
+```bash
+python -c "from flightbot import history; \
+  rows=[r for r in history.read() if r['price']]; \
+  print(min(rows, key=lambda r: r['price']))"
+```
+
+`--dry-run` never writes it, and `--demo` writes to a gitignored
+`prices.demo.jsonl` so invented fixture prices can't contaminate the real record.
 
 ## Adding and removing routes
 
@@ -346,10 +386,12 @@ check.py              entry point
 start-ui.bat          double-click to open the control panel
 watches.json          your routes, plus shared defaults and the budget
 state.json            memory: alert history + monthly search spend
+prices.jsonl          every fare ever seen, one JSON object per line
 ui/index.html         the control panel - served by --ui, not opened directly
 ui/airports.json      4009 airports for the search box (public domain)
 flightbot/
   config.py           settings, watchlist loading, sampling planner
+  history.py          the append-only price journal
   ui_server.py        localhost server behind --ui (stdlib only)
   provider.py         SerpApi client + the demo fixture provider
   evaluate.py         the is-this-a-deal logic

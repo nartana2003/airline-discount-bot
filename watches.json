@@ -41,6 +41,12 @@
       "destination": "NRT",
       "trip_days": 12,
       "_note": "Use a REAL airport code. The TYO metro code is accepted by the API but returns zero flights - verified live. NRT (Narita) is where the budget carriers fly; HND (Haneda) is closer to central Tokyo."
+    },
+    {
+      "enabled": true,
+      "origin": "BNE",
+      "destination": "HND",
+      "trip_days": 12
     }
   ]
 }

@@ -41,13 +41,15 @@ jobs:
         run: python check.py --no-colour
 
       # state.json carries the cooldown history and the monthly search count,
-      # so it has to survive between runs. Committing it is the simplest
-      # durable store that also lets you eyeball the history in the repo.
-      - name: Persist state
+      # so it has to survive between runs. prices.jsonl is the accumulating
+      # record of every fare seen - it only has value if it keeps growing.
+      # Committing both is the simplest durable store that also lets you
+      # eyeball the history in the repo.
+      - name: Persist state and price history
         if: always()
         run: |
           git config user.name "flight-bot"
           git config user.email "flight-bot@users.noreply.github.com"
-          git add state.json
-          git diff --staged --quiet || git commit -m "state: $(date -u +%Y-%m-%dT%H:%MZ)"
+          git add state.json prices.jsonl
+          git diff --staged --quiet || git commit -m "run: $(date -u +%Y-%m-%dT%H:%MZ)"
           git push
