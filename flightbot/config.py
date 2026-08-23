@@ -157,8 +157,12 @@ class Watch:
 
         # Never search a departure date in the past, and never past the point
         # airlines have loaded schedules.
+        #
+        # The horizon binds the RETURN leg, not just the departure: a round trip
+        # needs both flights on sale, so a departure inside the horizon whose
+        # return falls outside it returns nothing and still costs a credit.
         start = max(start, today + timedelta(days=1))
-        end = min(end, today + timedelta(days=MAX_HORIZON_DAYS))
+        end = min(end, today + timedelta(days=MAX_HORIZON_DAYS - self.trip_days))
         if end < start:
             return []
 
@@ -190,10 +194,11 @@ def plan_sampling(watches: list[Watch], budget: Budget) -> None:
     share = per_run / len(active)
 
     for w in active:
-        # Clip to the horizon exactly as probes() does. Budgeting for days that
-        # will never be searched makes the step too big, so the run samples more
-        # coarsely than it can afford and quietly leaves credits unspent.
-        reach = min(w.days_from_now_max, MAX_HORIZON_DAYS)
+        # Clip to the horizon exactly as probes() does - including the trip
+        # length, since the return leg has to be on sale too. Budgeting for days
+        # that will never be searched makes the step too big, so the run samples
+        # more coarsely than it can afford and leaves credits unspent.
+        reach = min(w.days_from_now_max, MAX_HORIZON_DAYS - w.trip_days)
         span = max(reach - w.days_from_now_min, 1)
         if share <= 1:
             # Budget too small to sample at all - one probe per run per route.
