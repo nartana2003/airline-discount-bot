@@ -435,19 +435,47 @@ def _digest_when(iso: str | None) -> str:
     if not iso:
         return "—"
     try:
-        return datetime.fromisoformat(iso).strftime("%d %b %Y")
+        return datetime.fromisoformat(iso).strftime("%d %b")
     except ValueError:
         return iso[:10]
 
 
-def _digest_subject(d: dict) -> str:
+def _pretty_date(ymd: str | None, year: bool = False) -> str:
+    """"2027-05-18" -> "Tue 18 May". Nobody reads ISO dates for pleasure."""
+    if not ymd:
+        return ""
+    try:
+        d = datetime.strptime(ymd, "%Y-%m-%d")
+    except ValueError:
+        return ymd
+    return d.strftime("%a %d %b %Y" if year else "%a %d %b")
+
+
+def _labels(watches: list[Watch] | None) -> dict[str, str]:
+    """watch id -> "BNE → NRT". The id is a slug for the machine, not a name."""
+    return {w.id: f"{w.origin} → {w.destination}" for w in (watches or [])}
+
+
+def _digest_subject(d: dict, labels: dict[str, str] | None = None) -> str:
+    """Say the useful thing, not the internal thing.
+
+    "N alerts sent" was jargon: the reader does not think in alerts, and their
+    inbox already told them how many arrived. What they want from a monthly
+    check-in is the best price seen and whether anything is wrong.
+    """
+    labels = labels or {}
     best = d["routes"][0] if d["routes"] else None
-    head = "Flight Watch · still running"
+
+    if not best:
+        # The shape a broken run takes - phrase it so it reads as a problem.
+        return "Flight Watch · no fares found all month — worth a look"
+
+    where = labels.get(best["watch"], best["watch"])
+    price = f"{best['currency']} {best['price']:,.0f}"
     if d["deals"]:
-        return f"{head} · {d['deals']} alert{'' if d['deals'] == 1 else 's'} sent"
-    if best:
-        return f"{head} · nothing cheap · best was {best['currency']} {best['price']:,.0f}"
-    return f"{head} · no fares found"
+        n = d["deals"]
+        return f"Flight Watch · {n} cheap fare{'' if n == 1 else 's'} this month · best {price} {where}"
+    return f"Flight Watch · nothing cheap yet · best {price} {where}"
 
 
 def _row_detail(r: dict) -> str:
@@ -468,77 +496,122 @@ def _row_detail(r: dict) -> str:
     return " · ".join(bits)
 
 
-def _digest_plain(d: dict, quota: str) -> str:
+def _digest_plain(d: dict, quota: str, labels: dict[str, str] | None = None) -> str:
+    labels = labels or {}
     lines = [
-        "Still watching. Nothing here needs your attention.",
+        "Still watching.",
         "",
-        f"{_digest_when(d['first_run'])} – {_digest_when(d['last_run'])}   "
-        f"{d['runs']} run{'' if d['runs'] == 1 else 's'}, {d['searches']} searches",
+        f"{d['runs']} run{'' if d['runs'] == 1 else 's'} · {d['searches']} searches · "
+        f"{_digest_when(d['first_run'])} – {_digest_when(d['last_run'])}",
         "",
     ]
     if d["routes"]:
-        lines.append("Cheapest seen on each route:")
+        lines.append("CHEAPEST SEEN")
+        lines.append("")
         for r in d["routes"]:
-            lines.append(f"  {r['watch']}   {r['currency']} {r['price']:,.0f}"
-                         f"   {r['depart']} -> {r['ret']}   (Google: {r['level'] or '?'})")
+            where = labels.get(r["watch"], r["watch"])
+            lines.append(f"  {where}   {r['currency']} {r['price']:,.0f}"
+                         f"   ({r['level'] or 'unrated'})")
+            lines.append(f"    {_pretty_date(r['depart'])} → {_pretty_date(r['ret'], year=True)}")
             detail = _row_detail(r)
             if detail:
-                lines.append(f"      {detail}")
+                lines.append(f"    {detail}")
             if r.get("url"):
-                lines.append(f"      View: {r['url']}")
+                lines.append(f"    {r['url']}")
+            lines.append("")
     else:
-        lines.append("No priced fares were returned at all this period.")
-    lines.append("")
+        lines += ["Not one search returned a fare this month.",
+                  "That usually means a bad airport code or an API problem,",
+                  "not an expensive route — worth checking.", ""]
 
     if d["deals"]:
-        lines.append(f"{d['deals']} fare(s) rated 'low' and were emailed to you.")
-    else:
-        rated = ", ".join(f"{n} {lv}" for lv, n in d["levels"].items()) or "none"
-        lines.append(f"Nothing was rated 'low', so nothing was emailed. "
-                     f"Google rated what it saw: {rated}.")
+        n = d["deals"]
+        lines.append(f"You were emailed about {n} of these when {'it' if n == 1 else 'they'} "
+                     f"appeared.")
+    elif d["routes"]:
+        rated = ", ".join(f"{n} {lv}" for lv, n in d["levels"].items())
+        lines.append("Nothing hit 'low', so nothing was emailed — the fares above")
+        lines.append(f"are simply the cheapest seen. Google rated them: {rated}.")
     if d["empty"]:
-        lines.append(f"{d['empty']} date pair(s) returned no fares at all.")
+        lines.append(f"{d['empty']} date pair(s) came back with no fares at all.")
+
     lines += ["", quota, "",
               "-- ",
-              "This message exists so that silence means 'still working'",
-              "rather than 'possibly broken'. It arrives once a month."]
+              "A monthly note, so that silence means 'still working'",
+              "rather than 'possibly broken'."]
     return "\n".join(lines)
 
 
-def _digest_html(d: dict, quota: str) -> str:
-    blocks = []
+def _digest_html(d: dict, quota: str, labels: dict[str, str] | None = None) -> str:
+    labels = labels or {}
+
+    cards = []
     for r in d["routes"]:
+        where = labels.get(r["watch"], r["watch"])
         detail = _row_detail(r)
-        detail_html = (f'<div style="font-size:12.5px;color:{INK_3};margin-top:4px">'
-                       f'{esc(detail)}</div>' if detail else "")
+        detail_html = (
+            f'<div style="font-size:13px;color:{INK_2};margin-top:7px">{esc(detail)}</div>'
+            if detail else "")
         button = (
-            f'<div style="margin-top:10px"><a href="{esc(r["url"])}" '
-            f'style="display:inline-block;padding:7px 14px;border-radius:7px;'
-            f'border:1px solid {LINE};color:{ACCENT};font-size:12.5px;'
-            f'font-weight:600;text-decoration:none">View on Google Flights</a></div>'
+            f'<div style="margin-top:14px"><a href="{esc(r["url"])}" '
+            f'style="display:inline-block;padding:9px 18px;border-radius:8px;'
+            f'background:{ACCENT};color:#ffffff;font-size:13.5px;font-weight:600;'
+            f'text-decoration:none">View on Google Flights</a></div>'
             if r.get("url") else "")
-        blocks.append(
+        level = r.get("level")
+        chip = (f'<span style="display:inline-block;padding:3px 9px;border-radius:99px;'
+                f'background:{GOOD_BG};color:{GOOD};font-size:11.5px;font-weight:700;'
+                f'text-transform:uppercase;letter-spacing:.04em">{esc(level)}</span>'
+                if level == "low" else
+                f'<span style="font-size:12px;color:{INK_3}">Google: {esc(level or "unrated")}</span>')
+
+        cards.append(
             f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-            f'style="border:1px solid {LINE};border-radius:8px;background:#ffffff;'
-            f'margin:0 0 10px"><tr><td style="padding:14px 16px">'
-            f'<div style="font-size:12px;color:{INK_3};font-weight:600;'
-            f'letter-spacing:.05em">{esc(r["watch"])}</div>'
-            f'<div style="margin-top:5px">'
-            f'<span style="font-size:19px;font-weight:700;color:{INK}">'
+            f'style="border:1px solid {LINE};border-radius:10px;background:#ffffff;'
+            f'margin:0 0 12px"><tr><td style="padding:18px 20px">'
+            f'<div style="font-size:14px;font-weight:700;color:{INK}">{esc(where)}</div>'
+            f'<div style="margin-top:10px">'
+            f'<span style="font-size:26px;font-weight:700;color:{INK};line-height:1">'
             f'{r["currency"]} {r["price"]:,.0f}</span>'
-            f'<span style="font-size:13px;color:{INK_2}">&nbsp;&nbsp;'
-            f'{esc(r["depart"])} &rarr; {esc(r["ret"])}</span>'
-            f'<span style="font-size:12px;color:{INK_3}">&nbsp;&nbsp;Google: '
-            f'{esc(r["level"] or "?")}</span></div>'
+            f'&nbsp;&nbsp;{chip}</div>'
+            f'<div style="font-size:14px;color:{INK};margin-top:10px;font-weight:600">'
+            f'{esc(_pretty_date(r["depart"]))} &rarr; {esc(_pretty_date(r["ret"], year=True))}</div>'
             f'{detail_html}{button}</td></tr></table>'
         )
-    table = "".join(blocks) if blocks else (
-        f'<div style="font-size:14px;color:{INK_2}">'
-        f'No priced fares were returned at all this period.</div>')
 
-    verdict = (f'{d["deals"]} fare(s) rated &ldquo;low&rdquo; and were emailed to you.'
-               if d["deals"] else
-               'Nothing was rated &ldquo;low&rdquo;, so nothing was emailed.')
+    if cards:
+        body = "".join(cards)
+        heading = ('<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+                   f'color:{INK_3};text-transform:uppercase;margin:0 0 10px">'
+                   'Cheapest seen</div>')
+    else:
+        heading = ""
+        body = (
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'style="border:1px solid #f0c9c4;border-radius:10px;background:#fdf4f3">'
+            f'<tr><td style="padding:18px 20px">'
+            f'<div style="font-size:15px;font-weight:700;color:#8c2f26">'
+            f'Not one search returned a fare this month.</div>'
+            f'<div style="font-size:13.5px;color:{INK_2};margin-top:6px;line-height:1.5">'
+            f'That usually means a bad airport code or an API problem rather than an '
+            f'expensive route &mdash; worth checking.</div>'
+            f'</td></tr></table>')
+
+    if d["deals"]:
+        n = d["deals"]
+        note = (f'You were emailed about <b>{n}</b> of these when '
+                f'{"it" if n == 1 else "they"} appeared.')
+    elif d["routes"]:
+        rated = ", ".join(f"{c} {lv}" for lv, c in d["levels"].items())
+        note = (f'Nothing hit &ldquo;low&rdquo;, so nothing was emailed &mdash; the fares '
+                f'above are simply the cheapest seen. Google rated them: {esc(rated)}.')
+    else:
+        note = ""
+    if d["empty"]:
+        note += (f'<br>{d["empty"]} date pair(s) came back with no fares at all.')
+
+    note_html = (f'<div style="font-size:13.5px;color:{INK_2};line-height:1.55;'
+                 f'margin-top:4px">{note}</div>') if note else ""
 
     return (
         f'<!doctype html><html><body style="margin:0;padding:0;background:#f6f7f9">'
@@ -546,36 +619,35 @@ def _digest_html(d: dict, quota: str) -> str:
         f'style="background:#f6f7f9"><tr><td align="center" style="padding:24px 12px">'
         f'<table role="presentation" width="560" cellpadding="0" cellspacing="0" '
         f'style="width:100%;max-width:560px;font-family:{FONT}">'
-        f'<tr><td style="padding:0 0 6px">'
-        f'<div style="font-size:18px;font-weight:700;color:{INK}">Still watching</div>'
-        f'<div style="font-size:13px;color:{INK_2};margin-top:4px">'
-        f'{esc(_digest_when(d["first_run"]))} &ndash; {esc(_digest_when(d["last_run"]))}'
-        f' &middot; {d["runs"]} run{"" if d["runs"] == 1 else "s"}'
-        f' &middot; {d["searches"]} searches</div></td></tr>'
-        f'<tr><td style="padding:16px 0 0">'
-        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
-        f'color:{INK_3};text-transform:uppercase">Cheapest seen</div>{table}</td></tr>'
-        f'<tr><td style="padding:18px 0 0">'
-        f'<div style="font-size:13.5px;color:{INK_2};line-height:1.55">{verdict}</div>'
-        f'<div style="font-size:12.5px;color:{INK_3};margin-top:6px">{esc(quota)}</div>'
+        f'<tr><td style="padding:0 0 20px">'
+        f'<div style="font-size:20px;font-weight:700;color:{INK}">Still watching</div>'
+        f'<div style="font-size:13px;color:{INK_3};margin-top:5px">'
+        f'{d["runs"]} run{"" if d["runs"] == 1 else "s"} &middot; {d["searches"]} searches '
+        f'&middot; {esc(_digest_when(d["first_run"]))}&ndash;{esc(_digest_when(d["last_run"]))}'
+        f'</div></td></tr>'
+        f'<tr><td>{heading}{body}</td></tr>'
+        f'<tr><td style="padding:6px 0 0">{note_html}'
+        f'<div style="font-size:12px;color:{INK_3};margin-top:8px">{esc(quota)}</div>'
         f'</td></tr>'
         f'<tr><td style="padding:20px 0 0">'
         f'<div style="font-size:12px;color:{INK_3};line-height:1.5;'
         f'border-top:1px solid {LINE};padding-top:12px">'
-        f'This message exists so that silence means &ldquo;still working&rdquo; rather '
-        f'than &ldquo;possibly broken&rdquo;. It arrives once a month.</div>'
+        f'A monthly note, so that silence means &ldquo;still working&rdquo; rather than '
+        f'&ldquo;possibly broken&rdquo;.</div>'
         f'</td></tr></table></td></tr></table></body></html>'
     )
 
 
-def send_digest(settings: EmailSettings, d: dict, quota: str) -> None:
+def send_digest(settings: EmailSettings, d: dict, quota: str,
+                watches: list[Watch] | None = None) -> None:
     """Raises on failure so the caller can report it rather than fail silently."""
+    labels = _labels(watches)
     msg = EmailMessage()
-    msg["Subject"] = _digest_subject(d)
+    msg["Subject"] = _digest_subject(d, labels)
     msg["From"] = settings.user
     msg["To"] = settings.to
-    msg.set_content(_digest_plain(d, quota))
-    msg.add_alternative(_digest_html(d, quota), subtype="html")
+    msg.set_content(_digest_plain(d, quota, labels))
+    msg.add_alternative(_digest_html(d, quota, labels), subtype="html")
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(settings.host, settings.port, context=context) as server:

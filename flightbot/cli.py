@@ -211,13 +211,14 @@ def main(argv: list[str] | None = None) -> int:
             pass  # nothing has been recorded yet; wait for a run with data
         else:
             settings = config.EmailSettings.from_env()
-            quota = (f"Budget: {sum(len(dates_for(w)) for w in selected)} searches a run, "
-                     f"{budget.monthly_search_cap} a month.")
+            used = state.searches_this_month()
+            quota = (f"{used} of {budget.monthly_search_cap} searches used this month "
+                     f"({sum(len(dates_for(w)) for w in selected)} per run).")
             if not settings.configured:
                 print("digest not sent - email is not configured", file=sys.stderr)
             else:
                 try:
-                    notify.send_digest(settings, d, quota)
+                    notify.send_digest(settings, d, quota, watches=selected)
                     state.record_digest()
                     print(f"sent the monthly digest to {settings.to} "
                           f"({d['runs']} run(s), {d['searches']} searches)")
