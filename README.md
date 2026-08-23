@@ -1,7 +1,7 @@
 # Airline price watch bot
 
 Watches flight routes and emails you when a fare is genuinely cheap — not just
-when it moves. Currently watching **Brisbane → Tokyo Narita, return**.
+when it moves. Currently watching 
 
 ## Try it right now
 

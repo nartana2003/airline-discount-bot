@@ -1,33 +1,31 @@
 {
   "_comment": "Routes for the flight watch bot. Add or remove them in the UI: python check.py --ui",
-
   "budget": {
     "monthly_search_cap": 240,
     "_cap_note": "SerpApi free tier is 250 searches/month. ONE SEARCH = ONE DATE PAIR - the google_flights engine has no flexible-date mode, so a run samples dates rather than covering a range. The bot refuses to start a run that would breach this.",
     "runs_per_month": 4.3,
     "_runs_note": "Weekly schedule = 4.3 runs/month. Matches .github/workflows/check-flights.yml. Sampling density is derived from these two numbers, so you never set step size by hand."
   },
-
   "defaults": {
     "_note": "Shared by every route. These barely ever change, which is why they live here once instead of being repeated on each watch.",
-
     "window": {
       "days_from_now_min": 60,
       "days_from_now_max": 300,
       "_note": "How far ahead to look. 300 is the booking horizon - airlines haven't loaded schedules past it, so searches there return nothing and still cost a credit."
     },
-
     "adults": 1,
     "travel_class": 1,
     "stops": 0,
     "_stops_note": "0 = any, 1 = nonstop only, 2 = 1 stop or fewer, 3 = 2 stops or fewer.",
-
     "currency": "AUD",
-    "market": { "gl": "au", "hl": "en" },
-
-    "alert_on_price_level": ["low"],
+    "market": {
+      "gl": "au",
+      "hl": "en"
+    },
+    "alert_on_price_level": [
+      "low"
+    ],
     "_level_note": "The only alerting rule. Google's own verdict, built on real price history for this route and these dates, and it recalibrates by season on its own. 'low' means roughly 'below the floor of the typical range', so it is a high bar - expect quiet weeks. Add 'typical' if you want far more noise.",
-
     "notify": {
       "email": true,
       "cooldown_hours": null,
@@ -36,7 +34,6 @@
       "_renotify_note": "The one exception: if the price fell another this-many % since the last alert, it gets through. Being told twice about the same fare is noise; a further drop is new information."
     }
   },
-
   "watches": [
     {
       "enabled": true,
