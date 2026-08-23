@@ -494,15 +494,32 @@ async function load() {
   // fetch below would resolve against file:/// and hang or be blocked, leaving
   // the page stuck on "Loading…" with no clue why. Say so instead.
   if (location.protocol !== "http:" && location.protocol !== "https:") {
-    $("banner").innerHTML = `<div class="banner">
+    const url = "http://127.0.0.1:8765/";
+    $("banner").innerHTML = `<div class="banner" id="fileguard">
       <strong>This page is open as a file, so it can't reach your routes.</strong><br>
       A <code>file://</code> page isn't allowed to read or write
-      <code>watches.json</code>, so the panel has to be served instead.
+      <code>watches.json</code>. The panel has to be served instead.
       <br><br>
-      Close this tab and <strong>double-click <code>start-ui.bat</code></strong>
-      in the project folder — or run <code>python check.py --ui</code> yourself.
-      Either one opens the working panel in your browser.</div>`;
+      <span id="guard-action">Checking whether the bot is already running…</span>
+    </div>`;
     pill("Not connected", "error");
+
+    // If the server is up, this dead-end tab becomes one click from the real
+    // one. /api/ping allows cross-origin reads precisely so this can work.
+    const fallback = `<strong>Double-click <code>start-ui.bat</code></strong> in the
+      project folder — or run <code>python check.py --ui</code> — then open
+      <a href="${url}">${url}</a>`;
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 1500);
+      const r = await fetch(url + "api/ping", { signal: ctrl.signal });
+      if (!r.ok) throw new Error();
+      $("guard-action").innerHTML =
+        `<strong>Good news — the bot is already running.</strong><br>
+         <a href="${url}" style="font-size:15px;font-weight:700">Open the working panel →</a>`;
+    } catch {
+      $("guard-action").innerHTML = fallback;
+    }
     return;
   }
 

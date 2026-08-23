@@ -93,8 +93,19 @@ class Handler(BaseHTTPRequestHandler):
 
         # Cheap liveness check. If the page can load but this can't, something
         # between the browser and here is filtering requests.
+        #
+        # This one endpoint allows cross-origin reads so that a copy of the
+        # panel opened as a file:// page - which can't reach its own routes -
+        # can still tell whether the real server is up and link you to it. It
+        # returns nothing but {"ok": true}, so there's nothing to leak.
         if self.path == "/api/ping":
-            self._json(200, {"ok": True})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            body = b'{"ok": true}'
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if self.path == "/api/watches":
