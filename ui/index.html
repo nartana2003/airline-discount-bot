@@ -505,20 +505,35 @@ async function load() {
     </div>`;
     pill("Not connected", "error");
 
-    // If the server is up, this dead-end tab becomes one click from the real
-    // one. /api/ping allows cross-origin reads precisely so this can work.
+    // If the server is up, don't strand the reader in a tab that can never
+    // work - go there. /api/ping allows cross-origin reads so this check is
+    // possible at all. Ports match the default and the one --port suggests.
     const fallback = `<strong>Double-click <code>start-ui.bat</code></strong> in the
       project folder — or run <code>python check.py --ui</code> — then open
       <a href="${url}">${url}</a>`;
-    try {
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 1500);
-      const r = await fetch(url + "api/ping", { signal: ctrl.signal });
-      if (!r.ok) throw new Error();
+
+    const live = async (port) => {
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 1200);
+        const r = await fetch(`http://127.0.0.1:${port}/api/ping`, { signal: ctrl.signal });
+        return r.ok ? `http://127.0.0.1:${port}/` : null;
+      } catch { return null; }
+    };
+
+    let found = null;
+    for (const port of [8765, 8766, 8767]) {
+      found = await live(port);
+      if (found) break;
+    }
+
+    if (found) {
       $("guard-action").innerHTML =
-        `<strong>Good news — the bot is already running.</strong><br>
-         <a href="${url}" style="font-size:15px;font-weight:700">Open the working panel →</a>`;
-    } catch {
+        `<strong>The bot is running — taking you there now…</strong><br>
+         <a href="${found}" style="font-size:15px;font-weight:700">${found}</a>`;
+      // replace() so this tab doesn't linger in history to be landed on again.
+      setTimeout(() => location.replace(found), 1200);
+    } else {
       $("guard-action").innerHTML = fallback;
     }
     return;
