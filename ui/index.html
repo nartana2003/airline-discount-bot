@@ -134,6 +134,11 @@ h1 em { font-style: italic; }
 
 /* airport field: printed code above, searchable city beneath */
 .ap { position: relative; min-width: 0; flex: 1 1 150px; }
+.ap .port-lab {
+  display: block; margin-bottom: 7px;
+  font: 500 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
 .ap .code {
   font: 700 30px/1 var(--mono); letter-spacing: .02em; color: var(--ink);
   min-height: 30px; display: block;
@@ -488,6 +493,7 @@ function renderBudget() {
 // from the selection rather than typed, so it reads as stamped, not editable.
 function picker(key, code, placeholder, badCls) {
   return `<div class="ap${badCls}" data-field="${key}">
+    <span class="port-lab">${key === "origin" ? "From" : "To"}</span>
     <span class="code${code ? "" : " blank"}">${esc(code || "———")}</span>
     <input type="text" data-k="${key}" autocomplete="off" spellcheck="false"
            value="${esc(displayFor(code))}" placeholder="${esc(placeholder)}"
@@ -851,13 +857,15 @@ $("routes").addEventListener("click", (e) => {
 
 $("add").onclick = () => {
   doc ||= { watches: [] };
-  // Inherit the origin you already fly from - it's the same every time.
-  const origin = doc.watches.at(-1)?.origin || "BNE";
+  // Carry the origin over from the last route - you generally fly out of the
+  // same airport - but seed nothing when there is no last route. No city is
+  // baked in; the very first route asks where you're flying from.
+  const origin = doc.watches.at(-1)?.origin || "";
   doc.watches.push({ enabled: true, origin, destination: "", trip_days: 12 });
   render();
-  // Focus the empty destination so you can just start typing a city.
-  const cards = document.querySelectorAll(".card");
-  cards[cards.length - 1]?.querySelector('[data-k="destination"]')?.focus();
+  // Focus whichever field is actually blank.
+  const card = document.querySelectorAll(".card")[doc.watches.length - 1];
+  card?.querySelector(origin ? '[data-k="destination"]' : '[data-k="origin"]')?.focus();
 };
 
 $("theme").onclick = () => {
