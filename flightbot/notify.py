@@ -89,6 +89,48 @@ def _saving(v: Verdict) -> str:
     return f"{v.quote.currency} {mid - v.quote.price:,.0f} under typical"
 
 
+def _under_pct(v: Verdict) -> int | None:
+    """How far under the typical midpoint, as a whole percent."""
+    mid = v.quote.typical_mid
+    if mid is None or not mid or v.quote.price is None or v.quote.price >= mid:
+        return None
+    return round((mid - v.quote.price) / mid * 100)
+
+
+def _duration(minutes: int | None) -> str:
+    if not minutes:
+        return ""
+    return f"{minutes // 60}h {minutes % 60:02d}m"
+
+
+def _timeline(v: Verdict) -> str:
+    """"09:10 BNE -> 17:55 NRT" for the outbound, with the stop count.
+
+    Only the outbound: a round-trip search returns outbound itineraries, and
+    the return leg would cost a second API call per fare.
+    """
+    legs = v.quote.legs
+    if not legs:
+        return ""
+    first, last = legs[0], legs[-1]
+    if not (first.depart_time and last.arrive_time):
+        return ""
+    line = (f"{first.depart_time} {first.from_id or ''} → "
+            f"{last.arrive_time} {last.to_id or ''}").strip()
+    dur = _duration(v.quote.duration_minutes)
+    if dur:
+        line += f"  ({dur})"
+    return line
+
+
+def _flight_numbers(v: Verdict) -> str:
+    out = []
+    for leg in v.quote.legs:
+        if leg.flight_number:
+            out.append(leg.flight_number.replace(" ", ""))
+    return ", ".join(out)
+
+
 # ---------------------------------------------------------------- terminal
 def print_results(watch: Watch, verdicts: list[Verdict], colour: bool = True) -> None:
     g, d, b, r = (GREEN, DIM, BOLD, RESET) if colour else ("", "", "", "")
@@ -130,7 +172,11 @@ def _plain_body(watch: Watch, verdicts: list[Verdict],
                      + (f"   {saving}" if saving else ""))
         lines.append(f"  {q.depart_date:%a %d %b %Y}  ->  {q.return_date:%a %d %b %Y}"
                      f"   ({q.probe.trip_days} days)")
-        detail = " · ".join(x for x in [", ".join(q.airlines), _stops_text(q.stops)] if x)
+        times = _timeline(v)
+        if times:
+            lines.append(f"  {times}  outbound")
+        detail = " · ".join(x for x in [", ".join(q.airlines), _flight_numbers(v),
+                                        _stops_text(q.stops)] if x)
         if detail:
             lines.append(f"  {detail}")
         if q.typical_low and q.typical_high:
@@ -169,10 +215,20 @@ def _card(v: Verdict, hero: bool) -> str:
                        f'font-size:12px;font-weight:600">{esc(saving)}</div>')
 
     detail = " &middot; ".join(
-        esc(x) for x in [", ".join(q.airlines), _stops_text(q.stops)] if x
+        esc(x) for x in [", ".join(q.airlines), _flight_numbers(v),
+                         _stops_text(q.stops)] if x
     )
     detail_html = (f'<div style="font-size:13.5px;color:{INK_2};margin-top:5px">{detail}</div>'
                    if detail else "")
+
+    # The outbound clock times - the thing that decides whether a fare is
+    # actually usable, and which used to be thrown away in the parser.
+    timeline = _timeline(v)
+    timeline_html = (
+        f'<div style="font-size:14px;color:{INK};margin-top:8px;font-weight:600;'
+        f'font-variant-numeric:tabular-nums">{esc(timeline)}'
+        f'<span style="font-weight:400;color:{INK_3}">&nbsp;&nbsp;outbound</span></div>'
+        if timeline else "")
 
     usual_html = ""
     if q.typical_low and q.typical_high:
@@ -205,15 +261,58 @@ def _card(v: Verdict, hero: bool) -> str:
         f'<div style="margin-top:14px;font-size:15px;color:{INK};font-weight:600">'
         f'{q.depart_date:%a %d %b} &rarr; {q.return_date:%a %d %b %Y}'
         f'<span style="font-weight:400;color:{INK_2}">&nbsp;&nbsp;{q.probe.trip_days} days</span></div>'
-        f'{detail_html}{usual_html}{reasons}{button}'
+        f'{timeline_html}{detail_html}{usual_html}{reasons}{button}'
         f'</td></tr></table>'
+    )
+
+
+def _row(v: Verdict) -> str:
+    """One runner-up as a single compact line rather than a full card.
+
+    Ten stacked cards is a wall to scroll past; the cheapest deserves the
+    space, the rest just need to be scannable.
+    """
+    q = v.quote
+    times = _timeline(v)
+    return (
+        f'<tr>'
+        f'<td style="padding:9px 12px 9px 0;font-size:15px;font-weight:700;'
+        f'color:{INK};white-space:nowrap;font-variant-numeric:tabular-nums">'
+        f'{q.currency} {q.price:,.0f}</td>'
+        f'<td style="padding:9px 12px 9px 0;font-size:13px;color:{INK_2};white-space:nowrap">'
+        f'{q.depart_date:%a %d %b} &rarr; {q.return_date:%d %b}</td>'
+        f'<td style="padding:9px 12px 9px 0;font-size:12.5px;color:{INK_3};'
+        f'white-space:nowrap;font-variant-numeric:tabular-nums">{esc(times)}</td>'
+        f'<td style="padding:9px 0;font-size:12.5px;color:{INK_3}">'
+        f'{esc(", ".join(q.airlines))}</td>'
+        f'</tr>'
     )
 
 
 def _html_body(watch: Watch, verdicts: list[Verdict],
                searched: list[Verdict] | None = None) -> str:
     ordered = by_price(verdicts)
-    cards = "".join(_card(v, hero=(i == 0)) for i, v in enumerate(ordered))
+    hero = _card(ordered[0], hero=True)
+
+    # The rest collapse where the client supports <details>. Gmail strips it and
+    # renders the contents open - which is why they are compact rows and not
+    # cards: the fallback has to be acceptable on its own, since no email client
+    # runs the JavaScript a real toggle would need.
+    rest = ""
+    if len(ordered) > 1:
+        n = len(ordered) - 1
+        rows = "".join(_row(v) for v in ordered[1:])
+        rest = (
+            f'<details style="margin-top:6px">'
+            f'<summary style="cursor:pointer;font-size:13px;font-weight:600;'
+            f'color:{ACCENT};padding:10px 0;list-style:none">'
+            f'{n} other date{"" if n == 1 else "s"} that also qualified</summary>'
+            f'<table role="presentation" cellpadding="0" cellspacing="0" '
+            f'style="width:100%;border-top:1px solid {LINE};margin-top:4px">'
+            f'{rows}</table></details>'
+        )
+
+    cards = hero + rest
 
     scope = _scope_line(searched)
     scope_html = ""
@@ -222,10 +321,6 @@ def _html_body(watch: Watch, verdicts: list[Verdict],
                       f'line-height:1.45">{esc(scope)}</div>')
 
     more = ""
-    if len(ordered) > 1:
-        n = len(ordered) - 1
-        more = (f'<div style="font-size:12px;color:{INK_3};margin:0 0 12px">'
-                f'{n} other date{"" if n == 1 else "s"} below</div>')
 
     return (
         f'<!doctype html><html><body style="margin:0;padding:0;background:#f6f7f9">'
@@ -248,14 +343,28 @@ def _html_body(watch: Watch, verdicts: list[Verdict],
 
 
 def _subject(watch: Watch, verdicts: list[Verdict]) -> str:
-    """Front-load price and date. "Flight deal:" wasted the visible prefix."""
+    """Front-load the price, then say why it's worth opening.
+
+    A subject is read at a glance in a list, and phone clients cut it around
+    35 characters - so price and route come first, and the reason it qualified
+    comes next. "+N more" was the old tail and said nothing about whether the
+    mail was worth opening.
+    """
     best = cheapest_of(verdicts)
     q = best.quote
-    head = (f"{q.currency} {q.price:,.0f} · {watch.origin}→{watch.destination} · "
-            f"{q.depart_date:%d %b}")
+    head = f"{q.currency} {q.price:,.0f} {watch.origin}→{watch.destination}"
+    parts = [head, f"{q.depart_date:%a %d %b}"]
+
+    pct = _under_pct(best)
+    if pct:
+        parts.append(f"{pct}% under typical")
+    elif q.price_level:
+        parts.append(f"Google: {q.price_level}")
+
+    line = " · ".join(parts)
     if len(verdicts) > 1:
-        return f"{head} +{len(verdicts) - 1} more"
-    return f"{head} ({q.probe.trip_days}d)"
+        line += f" (+{len(verdicts) - 1})"
+    return line
 
 
 # ---------------------------------------------------------------- digest

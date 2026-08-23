@@ -31,6 +31,35 @@ class SearchError(RuntimeError):
     """A lookup failed in a way the caller should surface, not crash on."""
 
 
+@dataclass(frozen=True)
+class Leg:
+    """One flight within an itinerary.
+
+    The times come back as "YYYY-MM-DD HH:MM" local to each airport. They were
+    always in the response and used to be discarded - "Jetstar, nonstop" tells
+    you nothing about whether you're leaving at 06:00 or 21:00.
+    """
+
+    airline: str | None
+    flight_number: str | None
+    from_id: str | None
+    to_id: str | None
+    depart: str | None
+    arrive: str | None
+
+    @staticmethod
+    def _clock(stamp: str | None) -> str:
+        return stamp.split()[1] if stamp and " " in stamp else ""
+
+    @property
+    def depart_time(self) -> str:
+        return self._clock(self.depart)
+
+    @property
+    def arrive_time(self) -> str:
+        return self._clock(self.arrive)
+
+
 @dataclass
 class Quote:
     """The cheapest itinerary for one exact date pair, plus Google's verdict."""
@@ -46,6 +75,10 @@ class Quote:
     stops: int | None
     duration_minutes: int | None
     booking_url: str | None
+    legs: tuple[Leg, ...] = ()
+    """Outbound only. A round-trip search returns outbound itineraries; the
+    return leg needs a second call against a departure token, which would cost
+    another credit per fare."""
 
     @property
     def depart_date(self) -> date:
@@ -120,6 +153,7 @@ def _parse(payload: dict, watch: Watch, probe: Probe) -> Quote:
 
     airlines: tuple[str, ...] = ()
     stops = duration = None
+    parsed_legs: tuple[Leg, ...] = ()
     # Only describe the itinerary when it's the one we're quoting a price for.
     # If Google's lowest_price disagrees with the cheapest listed flight,
     # naming the airline would attach someone else's flight to this fare.
@@ -128,6 +162,17 @@ def _parse(payload: dict, watch: Watch, probe: Probe) -> Quote:
         airlines = tuple(dict.fromkeys(leg.get("airline") for leg in legs if leg.get("airline")))
         stops = max(len(legs) - 1, 0)
         duration = cheapest.get("total_duration")
+        parsed_legs = tuple(
+            Leg(
+                airline=leg.get("airline"),
+                flight_number=leg.get("flight_number"),
+                from_id=(leg.get("departure_airport") or {}).get("id"),
+                to_id=(leg.get("arrival_airport") or {}).get("id"),
+                depart=(leg.get("departure_airport") or {}).get("time"),
+                arrive=(leg.get("arrival_airport") or {}).get("time"),
+            )
+            for leg in legs
+        )
 
     return Quote(
         watch_id=watch.id,
@@ -141,6 +186,7 @@ def _parse(payload: dict, watch: Watch, probe: Probe) -> Quote:
         stops=stops,
         duration_minutes=duration,
         booking_url=payload.get("search_metadata", {}).get("google_flights_url"),
+        legs=parsed_legs,
     )
 
 
