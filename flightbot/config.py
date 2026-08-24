@@ -57,8 +57,11 @@ class EmailSettings:
     @classmethod
     def from_env(cls) -> "EmailSettings":
         return cls(
-            host=os.getenv("SMTP_HOST", "smtp.gmail.com"),
-            port=int(os.getenv("SMTP_PORT", "465")),
+            # `or` not getenv's default: an unset GitHub secret still sets
+            # the variable, to "". Absent and empty have to mean the same thing
+            # or int("") takes the whole run down with a traceback.
+            host=os.getenv("SMTP_HOST") or "smtp.gmail.com",
+            port=int(os.getenv("SMTP_PORT") or "465"),
             user=os.getenv("SMTP_USER", ""),
             password=os.getenv("SMTP_PASSWORD", ""),
             to=os.getenv("ALERT_TO", "") or os.getenv("SMTP_USER", ""),
