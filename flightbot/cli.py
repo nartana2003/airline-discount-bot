@@ -76,13 +76,22 @@ def main(argv: list[str] | None = None) -> int:
 
     planned = sum(len(dates_for(w)) for w in selected)
     if not args.demo:
-        # Prefer SerpApi's own figure over the local tally, which drifts.
+        # SerpApi's own figure decides, and the local tally is only the
+        # stand-in for when the account endpoint can't be reached.
+        #
+        # These two count different things. The tally counts by calendar month;
+        # SerpApi counts from whenever the plan renews. Once those windows
+        # diverge the tally reads high, and taking the stricter of the two -
+        # which this used to do - let a number that is merely stale veto a run
+        # the real quota allowed. One route ran out of budget three weeks early
+        # that way. Only one of the two can actually stop a search happening,
+        # so only that one is worth obeying.
         real_left = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
         local_left = max(budget.monthly_search_cap - state.searches_this_month(), 0)
-        # Take the stricter of the two: SerpApi's is the hard limit, but a
-        # lower local cap is a deliberate self-restraint worth honouring.
-        available = min(real_left, local_left) if real_left is not None else local_left
-        source = "SerpApi" if real_left is not None else "local tally"
+        if real_left is None:
+            available, source = local_left, "local tally"
+        else:
+            available, source = real_left, "SerpApi"
         if planned > available:
             print(
                 f"stopping: this run needs {planned} searches but only {available} "
@@ -94,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if real_left is not None and real_left != local_left:
             print(f"quota: {real_left} left per SerpApi "
-                  f"(local tally said {local_left}) - using the smaller")
+                  f"(local tally said {local_left}) - going with SerpApi")
 
     try:
         provider = build_provider(os.getenv("SERPAPI_KEY", ""), args.demo)
