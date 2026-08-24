@@ -186,14 +186,13 @@ same duration, so prices are directly comparable across dates: a cheaper result
 means a cheaper *date*, not a shorter trip. A range would rotate durations
 between probes and quietly destroy that comparison.
 
-The bot checks **SerpApi's own quota figure** before each run and treats it as
-authoritative, falling back to its local tally only when the account endpoint
-can't be reached. The two count different windows — the tally by calendar month,
-SerpApi from whenever the plan renews — so once they diverge the local number
-reads high. Taking the stricter of the two, which this used to do, let a merely
-stale figure veto a run the real quota allowed. Only one of them can actually
-stop a search happening, so only that one is obeyed. It still refuses to start a
-run it can't finish.
+**SerpApi's own count is the only budget authority**, checked before each run.
+There used to be a local tally alongside it, reconciled with `min()`. The two
+counted different windows — the tally by calendar month, SerpApi from whenever
+the plan renews — and the tally also counted searches SerpApi served from cache
+and never charged for. It drifted high and vetoed runs the real quota allowed.
+A second number that can only be wrong is worse than no second number, so it is
+gone; if SerpApi can't be reached, the run doesn't start rather than guess.
 
 ### Two hard limits, both verified against the live API
 
@@ -269,6 +268,19 @@ Setting them via `gh secret set NAME` and pasting at the prompt avoids both.
 The workflow commits `state.json` back after each run — that commit is the bot's
 memory, so don't add it to `.gitignore`. It needs `contents: write`, which is
 already declared in the workflow file.
+
+### Failing before it spends anything
+
+Two checks run before the first search, because both failures used to surface
+only *after* a full run's quota was gone:
+
+- **The test suite**, in CI. Stdlib `unittest`, under a second.
+- **An SMTP login**, connecting and authenticating without sending. A bad app
+  password used to be discovered at the very end — every fare priced, every
+  credit spent, and the alert still undelivered.
+
+Neither costs a search. Both turn "the month's quota is gone and you got
+nothing" into "stopped immediately, here is what's wrong".
 
 ## Not getting spammed
 
@@ -512,6 +524,8 @@ python check.py --watch bne-nrt  # just one route
 python check.py --force-notify   # re-alert current deals, ignore cooldown
 python check.py --digest         # send the monthly 'still watching' summary now
 python check.py --limit 6        # only the first 6 dates - cheap live smoke test
+
+python -m unittest discover      # the test suite - stdlib only, under a second
 ```
 
 ## Layout
@@ -524,6 +538,7 @@ state.json            memory: alert history + monthly search spend
 prices.jsonl          every fare ever seen, one JSON object per line
 ui/index.html         the control panel - served by --ui, not opened directly
 ui/airports.json      4009 airports for the search box (public domain)
+tests/                the suite - stdlib unittest, no extra dependency
 flightbot/
   config.py           settings, watchlist loading, sampling planner
   history.py          the append-only price journal

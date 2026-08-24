@@ -446,6 +446,28 @@ def _labels(watches: list[Watch] | None) -> dict[str, str]:
     return {w.id: f"{w.origin} → {w.destination}" for w in (watches or [])}
 
 
+def _route_label(row: dict, labels: dict[str, str]) -> str:
+    """Name a route, even one that no longer exists.
+
+    Deleting a route from watches.json does not delete what it recorded, so the
+    digest can outlive the watch that produced the rows. With only the current
+    watchlist to look up, those fell back to the raw slug - a digest line
+    reading "bne-hnd" beside a real fare. The airports are on the row itself,
+    so the name can be rebuilt without the watch.
+    """
+    watch_id = row.get("watch", "")
+    if watch_id in labels:
+        return labels[watch_id]
+    origin, dest = row.get("from_id"), row.get("to_id")
+    if origin and dest:
+        return f"{origin} → {dest}"
+    # Last resort: a slug like "bne-hnd" still reads better upper-cased.
+    if "-" in watch_id:
+        a, _, b = watch_id.partition("-")
+        return f"{a.upper()} → {b.upper()}"
+    return watch_id
+
+
 # Google Flights carries its result ordering in the `tfu` query parameter, as
 # a two-field protobuf: EgIIAQ decodes to 12 02 08 01 - field 1 = 1, "Top
 # flights" - and EgIIAg to 12 02 08 02, field 1 = 2, "Price". Those numbers are
@@ -549,7 +571,7 @@ def _digest_subject(d: dict, labels: dict[str, str] | None = None) -> str:
 
     # routes[0] is sorted on the headline, so quote the headline fare.
     best = (d.get("current") or {}).get(best["watch"]) or best
-    where = labels.get(best["watch"], best["watch"])
+    where = _route_label(best, labels)
     price = f"{best['currency']} {best['price']:,.0f}"
     if d["deals"]:
         n = d["deals"]
@@ -584,7 +606,7 @@ def _digest_plain(d: dict, labels: dict[str, str] | None = None,
         lines.append("")
         for r in d["routes"]:
             now, low = _digest_pair(d, r)
-            where = labels.get(now["watch"], now["watch"])
+            where = _route_label(now, labels)
             lines.append(f"  {where}   {now['currency']} {now['price']:,.0f}"
                          f"   ({now['level'] or 'unrated'})")
             lines.append(f"    {_pretty_date(now['depart'])} → {_pretty_date(now['ret'], year=True)}")
@@ -623,7 +645,7 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
     cards = []
     for r in d["routes"]:
         now, low = _digest_pair(d, r)
-        where = labels.get(now["watch"], now["watch"])
+        where = _route_label(now, labels)
         detail = _row_detail(now)
         detail_html = (
             f'<div style="font-size:13.5px;color:{INK_2};margin-top:5px">{esc(detail)}</div>'
@@ -704,6 +726,20 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
         f'<tr><td style="padding:6px 0 0">{note_html}</td></tr>'
         f'</table></td></tr></table></body></html>'
     )
+
+
+def check_login(settings: EmailSettings) -> None:
+    """Connect and authenticate, sending nothing. Raises on failure.
+
+    Called before a run spends any credits. Bad SMTP credentials are one of the
+    two ways this bot has actually broken in the wild, and they used to surface
+    only at the very end - after a full run's quota had been spent deciding
+    which fares to send. The failure is identical either way; the difference is
+    whether it costs you the month's searches to find out.
+    """
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL(settings.host, settings.port, context=context) as server:
+        server.login(settings.user, settings.password)
 
 
 def send_digest(settings: EmailSettings, d: dict,

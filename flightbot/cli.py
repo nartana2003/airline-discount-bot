@@ -76,34 +76,29 @@ def main(argv: list[str] | None = None) -> int:
 
     planned = sum(len(dates_for(w)) for w in selected)
     if not args.demo:
-        # SerpApi's own figure decides, and the local tally is only the
-        # stand-in for when the account endpoint can't be reached.
-        #
-        # These two count different things. The tally counts by calendar month;
-        # SerpApi counts from whenever the plan renews. Once those windows
-        # diverge the tally reads high, and taking the stricter of the two -
-        # which this used to do - let a number that is merely stale veto a run
-        # the real quota allowed. One route ran out of budget three weeks early
-        # that way. Only one of the two can actually stop a search happening,
-        # so only that one is worth obeying.
-        real_left = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
-        local_left = max(budget.monthly_search_cap - state.searches_this_month(), 0)
-        if real_left is None:
-            available, source = local_left, "local tally"
-        else:
-            available, source = real_left, "SerpApi"
+        # SerpApi's own count is the only budget authority. A local tally used
+        # to shadow it, reconciled with min(), but the two count different
+        # windows - the tally by calendar month, SerpApi from whenever the plan
+        # renews - and the tally also counted searches SerpApi served from
+        # cache and never charged for. It drifted high and vetoed runs the real
+        # quota allowed. A second number that can only be wrong is worse than
+        # no second number, so it is gone.
+        available = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
+        if available is None:
+            print("stopping: could not reach SerpApi to check the remaining "
+                  "quota. Rather than guess, this run does not start.",
+                  file=sys.stderr)
+            return 2
         if planned > available:
             print(
                 f"stopping: this run needs {planned} searches but only {available} "
-                f"remain (per {source}). Sampling density is derived from the cap, "
-                f"so this usually means the month's quota is already spent - wait "
-                f"for the reset, pause a route in --ui, or raise the cap.",
+                f"remain. Sampling density is derived from the cap, so this "
+                f"usually means the month's quota is already spent - wait for "
+                f"the reset, or pause a route in --ui.",
                 file=sys.stderr,
             )
             return 2
-        if real_left is not None and real_left != local_left:
-            print(f"quota: {real_left} left per SerpApi "
-                  f"(local tally said {local_left}) - going with SerpApi")
+        print(f"quota: {available} left, this run needs {planned}")
 
     try:
         provider = build_provider(os.getenv("SERPAPI_KEY", ""), args.demo)
@@ -113,6 +108,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.demo:
         print("running in demo mode - fixture data, no API calls, no credits used")
+
+    # Prove the mailbox before spending a run's worth of credits on it. A bad
+    # SMTP password used to surface only after every search had been paid for
+    # and every fare decided - the quota gone, the alert still undelivered.
+    # Logging in costs nothing and takes a second.
+    if not args.demo and not args.dry_run:
+        mail = config.EmailSettings.from_env()
+        if mail.configured:
+            try:
+                notify.check_login(mail)
+            except OSError as exc:
+                print(f"stopping: the mail server rejected the login, so no "
+                      f"alert could be delivered - {exc}", file=sys.stderr)
+                return 1
 
     exit_code = 0
     searches_used = 0
@@ -124,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
     # snapshot of what came before, so a record set earlier in the run cannot
     # raise the bar for the dates checked after it.
     floors = history.floors(history_path)
+
+    # One timestamp for the whole run - see history.run_stamp().
+    run_at = history.run_stamp()
 
     for watch in selected:
         verdicts: list[Verdict] = []
@@ -148,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
         # written if the email later fails.
         if not args.dry_run:
             try:
-                logged += history.record(verdicts, history_path)
+                logged += history.record(verdicts, history_path, run_at)
             except OSError as exc:
                 print(f"  could not write price history: {exc}", file=sys.stderr)
 
@@ -242,16 +254,11 @@ def main(argv: list[str] | None = None) -> int:
                     exit_code = 1
 
     if not args.dry_run:
-        state.record_searches(searches_used)
         state.save()
 
     if searches_used:
-        # Report SerpApi's figure, not the local tally - they can disagree and
-        # the authoritative one is the one that actually stops you searching.
         left = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
-        if left is None:
-            left = f"~{budget.monthly_search_cap - state.searches_this_month()} (local estimate)"
-        print(f"\n{searches_used} search(es) used, {left} left this month")
+        print(f"\n{searches_used} search(es) used" + (f", {left} left this month" if left is not None else ""))
 
     return exit_code
 

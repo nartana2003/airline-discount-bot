@@ -61,7 +61,19 @@ def _row(verdict: Verdict, seen_at: str) -> dict:
     }
 
 
-def record(verdicts: Iterable[Verdict], path: Path | None = None) -> int:
+def run_stamp() -> str:
+    """One timestamp for a whole run, taken once and passed to every record().
+
+    `at` is what identifies a run in this file, and record() is called once per
+    route - so letting each call stamp its own clock gave every route its own
+    `at` and made a single run look like several. The digest counts distinct
+    timestamps as runs, and reported three runs across two routes as six.
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def record(verdicts: Iterable[Verdict], path: Path | None = None,
+           seen_at: str | None = None) -> int:
     """Append one line per quote. Returns how many rows were written.
 
     Records quotes with no price too: "nothing on sale for these dates" is a
@@ -71,7 +83,7 @@ def record(verdicts: Iterable[Verdict], path: Path | None = None) -> int:
     if not rows:
         return 0
 
-    seen_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    seen_at = seen_at or run_stamp()
     target = path or HISTORY_PATH
     with open(target, "a", encoding="utf-8", newline="\n") as fh:
         for v in rows:
@@ -148,10 +160,10 @@ def digest(rows: list[dict]) -> dict:
     #
     # Without it the digest shows a low-water mark next to a working booking
     # link, which reads as a fare you can still buy. Often it isn't.
-    # Newest timestamp per route, not one global newest: record() is called
-    # once per watch, so every route stamps its own `at` seconds apart. A
-    # single global maximum would match only the last route of the run and
-    # leave every other route without a current price.
+    # Newest timestamp per route rather than one global newest. A run now
+    # stamps every route with the same `at` (see run_stamp), so these usually
+    # agree - but a route paused for a month, or rows written before that fix,
+    # would otherwise drop out of `current` entirely and lose its price.
     latest_at: dict[str, str] = {}
     for r in priced:
         at = str(r.get("at") or "")

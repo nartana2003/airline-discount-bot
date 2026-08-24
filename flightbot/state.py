@@ -33,23 +33,15 @@ class State:
                 return cls(path=p, data=json.loads(p.read_text(encoding="utf-8")))
             except json.JSONDecodeError:
                 pass  # corrupt state is not worth crashing over; start fresh
-        return cls(path=p, data={"alerts": {}, "spend": {}})
+        return cls(path=p, data={"alerts": {}})
 
     def save(self) -> None:
+        # `spend` was a local count of searches used per calendar month. It is
+        # no longer read: SerpApi's own figure is the budget authority, and a
+        # second number that could only drift out of step was worse than none.
+        # Dropped on save so the file cleans itself up on the next run.
+        self.data.pop("spend", None)
         self.path.write_text(json.dumps(self.data, indent=2, sort_keys=True), encoding="utf-8")
-
-    # --- search budget ---------------------------------------------------
-
-    def searches_this_month(self) -> int:
-        return int(self.data.setdefault("spend", {}).get(_now().strftime("%Y-%m"), 0))
-
-    def record_searches(self, count: int) -> None:
-        spend = self.data.setdefault("spend", {})
-        month = _now().strftime("%Y-%m")
-        spend[month] = int(spend.get(month, 0)) + count
-        # Keep only the last few months so the file doesn't grow forever.
-        for old in sorted(spend)[:-3]:
-            del spend[old]
 
     # --- periodic "still alive" digest -----------------------------------
     # A run that finds nothing looks exactly like a broken key, a dead SMTP

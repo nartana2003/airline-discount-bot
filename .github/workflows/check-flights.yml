@@ -34,6 +34,12 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # Before anything is spent. The suite is stdlib-only and takes under a
+      # second, and a run that would have crashed halfway is a run whose
+      # searches are gone either way.
+      - name: Run the tests
+        run: python -m unittest discover
+
       - name: Run the watch
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
