@@ -26,18 +26,19 @@ watches.json      your routes, shared defaults, monthly search budget
      ▼
 config.py         load routes, then work out how densely to sample:
                   monthly cap ÷ runs per month ÷ number of enabled routes
-     │            → "check every 5th departure date, 49 searches"
+     │            → "check every 9th departure date, 52 searches"
      ▼
 provider.py       ask SerpApi (Google Flights) for each sampled date pair
      │            ONE SEARCH = ONE EXACT DATE PAIR. no flexible-date mode.
      ▼
-evaluate.py       is this a deal?  one rule: Google itself rates it "low"
-     │
+evaluate.py       is this a deal?  two rules: Google rates it "low", or
+     │            it beats the cheapest ever recorded for that route
      ▼
 state.py          have I already emailed you about these exact dates?
      │            if yes, stay quiet - unless it dropped another 5%
      ▼
 notify.py         email what survives, cheapest first, with booking links
+     │            (pointed at a price-sorted Google Flights page)
      │
      ▼
 state.json        record what was sent - committed back to the repo,
@@ -75,14 +76,37 @@ price is *good*. Rather than building months of price history first, this leans
 on Google Flights' own `price_insights`, which returns a typical price range and
 a `low` / `typical` / `high` verdict for the route.
 
-There is exactly one rule:
+There are exactly two rules, and neither of them contains a number:
 
 ```
-Alert if Google rates the fare "low".
+Alert if Google rates the fare "low",
+   or if it is the cheapest ever recorded for that route.
 ```
 
-That's it — `alert_on_price_level: ["low"]`, the only knob, and the only thing
-that decides anything.
+**The first asks the market's opinion.** `alert_on_price_level: ["low"]` — it
+catches fares that are cheap *for when they are*, a December seat that is good
+for December.
+
+**The second reads the bot's own price journal instead.** Google's verdict is
+seasonal, so it says nothing about cheap in plain dollars: a fare can be the
+lowest ever seen on a route and still be rated `typical`. That gap is real —
+a BNE→BOM run flagged AUD 1,408 in December while staying silent about AUD 995
+in February. The record rule closes it.
+
+Both rules are self-calibrating, which is the point: the bar is whatever the
+market has actually shown you, so neither ever needs revisiting. The record rule
+is also **self-suppressing** — each record has to beat the last, so alerts thin
+out on their own rather than repeating.
+
+Two details that make it behave:
+
+- **A route with no history has no floor, and so cannot set a record.** That's
+  what keeps the first run on a newly added route quiet instead of flagging all
+  26 dates as all-time lows.
+- **It applies to the run's cheapest fare only**, once every date for the route
+  has been priced. Testing each date against the floor as it arrives flags every
+  fare under the old record — four dates all announcing they are "the cheapest
+  ever" when only one of them is.
 
 Earlier versions also had an absolute `hard_ceiling` (alert at/below AUD 900) and
 a `never_alert_above` veto. Both are **gone**. An absolute number is a claim
@@ -90,7 +114,14 @@ about what fares *should* cost, and it goes stale the moment they structurally
 move — you'd be re-tuning it forever, and a stale ceiling either spams you or
 silently stops firing. Google's verdict is built on real price history for this
 route and these dates and **recalibrates by season on its own**, so it needs no
-maintenance. One rule that stays correct beats three that drift.
+maintenance. The record rule is the same bargain from the other direction: it
+compares against your own observed history rather than a number you chose. Rules
+that stay correct beat rules that drift.
+
+**What neither rule catches:** a fare that is cheap in dollars but neither
+rated `low` nor an all-time record — say AUD 950 on a route where you have seen
+AUD 717. Covering that case needs an absolute threshold, with all the staleness
+that implies. It was a deliberate omission, not an oversight.
 
 **Expect quiet weeks.** "low" appears to mean roughly *below the floor of the
 typical range*, which is a high bar. In one live run of six real dates, none
@@ -101,6 +132,31 @@ dropped: on a wide range like 820-1,700 a fare of 1,071 reads as "15% below
 typical" while being nowhere near cheap, and it fired on a fare Google itself
 called ordinary. The percentage is still *shown* on alerts as context - it just
 no longer decides anything.
+
+### Where the booking link lands
+
+Google Flights has no stable public URL for a single itinerary, so every link in
+an email points at the *search* for that route and date pair, not at the fare
+itself. The results page ranks by "Top flights" — a blend of price and
+convenience — which means the fare you were emailed about is often several rows
+down and has to be hunted for.
+
+The sort order turns out to live in the `tfu` query parameter, as a two-field
+protobuf:
+
+```
+tfu=EgIIAQ   →  bytes 12 02 08 01  →  sort = 1  (Top flights, the default)
+tfu=EgIIAg   →  bytes 12 02 08 02  →  sort = 2  (Price)
+```
+
+Those values match SerpApi's documented `sort_by` options exactly. Rewriting
+that one parameter lands you on a price-sorted page, so the quoted fare is at or
+near the top. The search itself is encoded separately in `tfs`, which is left
+untouched — the page shows the same flights, just ordered differently.
+
+`tfu` is undocumented, so `_by_price()` degrades rather than breaks: a non-Google
+URL, a link with no `tfs`, or anything unparseable is returned unchanged. Worst
+case you land on an unsorted results page, which is what you had before.
 
 ## How it searches (the constraint everything follows from)
 
@@ -130,9 +186,14 @@ same duration, so prices are directly comparable across dates: a cheaper result
 means a cheaper *date*, not a shorter trip. A range would rotate durations
 between probes and quietly destroy that comparison.
 
-The bot checks **SerpApi's own quota figure** before each run rather than
-trusting a local tally, which drifts whenever `state.json` is deleted or a run
-dies midway. It refuses to start a run it can't finish.
+The bot checks **SerpApi's own quota figure** before each run and treats it as
+authoritative, falling back to its local tally only when the account endpoint
+can't be reached. The two count different windows — the tally by calendar month,
+SerpApi from whenever the plan renews — so once they diverge the local number
+reads high. Taking the stricter of the two, which this used to do, let a merely
+stale figure veto a run the real quota allowed. Only one of them can actually
+stop a search happening, so only that one is obeyed. It still refuses to start a
+run it can't finish.
 
 ### Two hard limits, both verified against the live API
 
@@ -191,7 +252,16 @@ Actions → New repository secret** and add four:
 | `SMTP_PASSWORD` | the 16-character Gmail **App Password** (not your login password) |
 | `ALERT_TO` | where alerts go (usually the same Gmail address) |
 
-`SMTP_HOST` and `SMTP_PORT` are optional — they default to `smtp.gmail.com:465`.
+`SMTP_HOST` and `SMTP_PORT` are optional — they default to `smtp.gmail.com:465`,
+and an empty value falls back to the same defaults. That second half matters: an
+unset GitHub secret does not leave the variable absent, it sets it to `""`, so
+`os.getenv("SMTP_PORT", "465")` returns the empty string rather than the default
+and `int("")` takes the whole run down with a traceback.
+
+**Paste secrets carefully.** Both failures this project has actually hit were
+malformed secret values, not bad code: a trailing newline on `SERPAPI_KEY` gave
+`401 rejected the key`, and a bad `SMTP_PASSWORD` gave `535 BadCredentials`.
+Setting them via `gh secret set NAME` and pasting at the prompt avoids both.
 
 **4. Test it without waiting a week.** Actions tab → *Check flight prices* →
 **Run workflow**. The `workflow_dispatch` trigger exists for exactly this.
@@ -232,6 +302,13 @@ If you'd rather be reminded periodically about a fare that's still cheap, set
 `cooldown_hours` to a number instead of `null` — but keep it **longer than the
 gap between runs** (weekly = 168h) or every run re-alerts the same fare.
 
+**This can silence a record.** A new all-time low on a date pair you were
+already emailed about, where the further drop is under 5%, is suppressed like
+any other repeat. The fare is nearly identical to one you already know about, and
+exempting records would let a slow slide downward email you every week — but it
+does mean "cheapest ever" occasionally goes unsaid. The monthly digest still
+shows it.
+
 `--force-notify` ignores all of the above and re-sends every current deal.
 
 ## Making silence mean something
@@ -244,23 +321,41 @@ So once a month — on the first run of each calendar month — it emails you
 whether or not there's anything to report:
 
 ```
-Still watching. Nothing here needs your attention.
+Still watching.
 
-01 Sep 2026 – 22 Sep 2026   4 runs, 208 searches
+CHEAPEST NOW
 
-Cheapest seen on each route:
-  bne-nrt   AUD 995    2027-03-05 -> 2027-03-17   (Google: typical)
-  bne-hnd   AUD 1,240  2027-03-05 -> 2027-03-17   (Google: typical)
+  BNE → NRT   AUD 1,034   (typical)
+    Sun 01 Nov → Fri 13 Nov 2026
+    06:40 BNE → 09:00 NRT (27h 20m) · Jetstar JQ928, JQ15
+    https://www.google.com/travel/flights?...
+    Lowest seen AUD 717 on 23 Aug · Tue 18 May → Sun 30 May 2027
 
-Nothing was rated 'low', so nothing was emailed.
-Google rated what it saw: 4 typical.
+  BNE → BOM   AUD 995   (unrated)
+    Mon 08 Feb → Mon 22 Feb 2027
+    20:35 BNE → 22:35 BOM (30h 30m) · Qantas QF943, MH126
+
+Nothing hit 'low' — these are just the cheapest seen.
 ```
 
+**It reports two prices, and the difference matters.** The headline is what the
+route costs *now* — the cheapest fare across every date the latest run checked,
+and the only one that can still be booked, so it is the only one that gets a
+link. `Lowest seen` underneath is the low-water mark for the period, plain text
+and dated, shown only when it is genuinely lower than today.
+
+Earlier versions printed only the low-water mark, next to a working booking
+button. Every individual piece was true, but a month-old price beside a live
+link reads as a fare you can buy, and usually you cannot. Nothing was wrong with
+the data; the presentation was making a claim the data did not support.
+
 It costs **no extra searches** — it's assembled entirely from
-[prices.jsonl](prices.jsonl), which the run already wrote. It covers everything
-since the last digest, so a missed run widens the window rather than losing the
-period. And it names the cheapest fare seen even when nothing qualified, which
-tells you whether the route is genuinely expensive or the bot has gone deaf.
+[prices.jsonl](prices.jsonl), which the run already wrote, including that
+"today" figure: the digest is sent at the tail of a run that has just searched
+every date. It covers everything since the last digest, so a missed run widens
+the window rather than losing the period. And it names the cheapest fare seen
+even when nothing qualified, which tells you whether the route is genuinely
+expensive or the bot has gone deaf.
 
 Send one now rather than waiting for the month to turn:
 
@@ -288,6 +383,11 @@ questions that matter later:
 - Was that "low" fare actually cheap, judged against my own history?
 - Which weeks of the year is this route reliably cheapest?
 - Is Google's verdict any good on this route, or should I stop trusting it?
+
+The first of those is no longer hypothetical: the second alerting rule reads
+this file. `history.floors()` returns the cheapest price ever recorded per
+route, read once at the start of a run — before any of that run's own rows are
+written, so a fare is only ever compared against runs that came before it.
 
 None of those are answerable retrospectively, which is why it logs from the
 start. At two routes it's about 220 rows a month — a few hundred KB a year.
@@ -436,12 +536,31 @@ flightbot/
 
 ## Future plans
 
+Known gaps, each deliberately unbuilt rather than forgotten:
 
+**An absolute price threshold.** The one case neither rule catches: a fare cheap
+in dollars but neither rated `low` nor an all-time record. It is the only rule
+that would reflect a budget rather than the market's mood — and the only one
+that needs revisiting as fares move. Worth adding only once the two current
+rules have run long enough to show what they miss.
+
+**A rolling window for the record rule.** A freak one-off sale becomes a
+permanent bar the route may never beat again, and the rule goes quiet without
+saying so. Comparing against the cheapest seen in the last year instead of ever
+would fix it, at the cost of one constant. Not worth adding until the record
+actually goes stale — the digest will show it happening.
+
+**Per-fare booking links.** A second SerpApi call using the response's booking
+token returns real airline links, but costs a credit per fare. At six deals a
+run that is a meaningful bite out of 250 a month, for convenience rather than
+information.
 
 ## Status
 
 **Live and verified end to end**, Aug 2026: real searches against SerpApi, real
-prices, real email delivered.
+prices, real email delivered — including a fully green GitHub Actions run that
+searched all 52 date pairs, applied both rules, emailed the survivors and
+committed its state back to the repo.
 
 A sample of live BNE→NRT returns: **AUD 951** for 24 Nov–5 Dec (17% below
 typical), against **AUD 2,184** over New Year. Typical range runs ~900–1,390 in
