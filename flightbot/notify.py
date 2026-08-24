@@ -548,9 +548,21 @@ def _digest_pair(d: dict, r: dict) -> tuple[dict, dict | None]:
     return now, r
 
 
-def _low_line(low: dict) -> str:
-    """"Lowest seen AUD 717 on 12 Aug · Tue 18 May -> Sun 30 May 2027"."""
-    return (f"Lowest seen {low['currency']} {low['price']:,.0f} on "
+def _low_line(low: dict, since: str | None = None) -> str:
+    """"Lowest since 27 Jul: AUD 717 on 12 Aug · Tue 18 May -> Sun 30 May 2027".
+
+    Named for the window it actually covers. This used to read "Lowest seen",
+    which is the same phrase the alert email uses for the all-time record - but
+    the digest only looks back to the previous digest. Two numbers called the
+    same thing over different periods eventually disagree, and a digest quoting
+    a "lowest" higher than a record you were emailed about reads as a bug.
+
+    "this month" would be almost right and occasionally wrong: a missed run
+    widens the window rather than losing the period. The date the window really
+    starts is already in the digest, so it can just say so.
+    """
+    when = f"Lowest since {_digest_when(since)}" if since else "Lowest seen"
+    return (f"{when}: {low['currency']} {low['price']:,.0f} on "
             f"{_digest_when(low.get('at'))} · {_pretty_date(low['depart'])} "
             f"→ {_pretty_date(low['ret'], year=True)}")
 
@@ -619,7 +631,7 @@ def _digest_plain(d: dict, labels: dict[str, str] | None = None,
             if url:
                 lines.append(f"    {url}")
             if low:
-                lines.append(f"    {_low_line(low)}")
+                lines.append(f"    {_low_line(low, d.get('first_run'))}")
             lines.append("")
     else:
         lines += ["Not one search returned a fare this month.",
@@ -654,7 +666,7 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
         # would sell a trip at a price that is gone.
         low_html = (
             f'<div style="font-size:12.5px;color:{INK_3};margin-top:6px">'
-            f'{esc(_low_line(low))}</div>' if low else "")
+            f'{esc(_low_line(low, d.get("first_run")))}</div>' if low else "")
         url = _row_url(now, watches)
         button = (
             f'<div style="margin-top:16px"><a href="{esc(url)}" '

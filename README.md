@@ -341,7 +341,7 @@ CHEAPEST NOW
     Sun 01 Nov → Fri 13 Nov 2026
     06:40 BNE → 09:00 NRT (27h 20m) · Jetstar JQ928, JQ15
     https://www.google.com/travel/flights?...
-    Lowest seen AUD 717 on 23 Aug · Tue 18 May → Sun 30 May 2027
+    Lowest since 27 Jul: AUD 717 on 23 Aug · Tue 18 May → Sun 30 May 2027
 
   BNE → BOM   AUD 995   (unrated)
     Mon 08 Feb → Mon 22 Feb 2027
@@ -353,8 +353,16 @@ Nothing hit 'low' — these are just the cheapest seen.
 **It reports two prices, and the difference matters.** The headline is what the
 route costs *now* — the cheapest fare across every date the latest run checked,
 and the only one that can still be booked, so it is the only one that gets a
-link. `Lowest seen` underneath is the low-water mark for the period, plain text
+link. `Lowest since …` underneath is the low-water mark for the period, plain text
 and dated, shown only when it is genuinely lower than today.
+
+**It is named for the window it covers, deliberately.** The alert email says
+"cheapest ever recorded" and means all time; the digest looks back only as far
+as the previous digest. Calling both of them "lowest seen" guarantees they
+eventually disagree — a digest quoting a low *higher* than a record you were
+emailed about, which reads as a bug and isn't one. Naming the actual start date
+also survives a missed run, which widens the window rather than losing it, and
+would have made "this month" quietly wrong.
 
 Earlier versions printed only the low-water mark, next to a working booking
 button. Every individual piece was true, but a month-old price beside a live
