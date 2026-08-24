@@ -3,9 +3,13 @@ name: Check flight prices
 on:
   schedule:
     # 07:00 Brisbane (UTC+10) = 21:00 UTC the previous day.
-    # Weekly, Monday 07:00 Brisbane. One search = one date pair, so a run costs
-    # ~41 searches (200-day window sampled every 5 days). Weekly is ~176/month
-    # against a 240 cap; anything more frequent overruns the free tier.
+    # Weekly, Monday 07:00 Brisbane. One search = one date pair, and a run's
+    # cost is simply how many dates it samples - but that number is derived,
+    # not fixed: plan_sampling() widens the step as routes are added so a
+    # month of weekly runs stays under the cap whatever the watchlist holds.
+    # Naming a figure here only dates the comment; `python check.py --ui`
+    # shows what a run costs today. Anything more frequent than weekly
+    # overruns the free tier.
     - cron: "0 21 * * 0"
   workflow_dispatch: # lets you trigger a run by hand from the Actions tab
 
