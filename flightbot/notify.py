@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
 from html import escape as esc
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .config import EmailSettings, Watch
 from .evaluate import Verdict
@@ -209,7 +209,7 @@ def _plain_route(g: RouteAlert) -> list[str]:
         for reason in v.reasons:
             lines.append(f"  - {reason}")
         if q.booking_url:
-            lines.append(f"  Book: {q.booking_url}")
+            lines.append(f"  Book: {_by_price(q.booking_url)}")
         lines.append("")
 
     return lines
@@ -266,7 +266,7 @@ def _card(v: Verdict, hero: bool) -> str:
 
     button = ""
     if q.booking_url:
-        button = (f'<div style="margin-top:16px"><a href="{esc(q.booking_url)}" '
+        button = (f'<div style="margin-top:16px"><a href="{esc(_by_price(q.booking_url))}" '
                   f'style="display:inline-block;padding:10px 20px;border-radius:8px;'
                   f'background:{ACCENT};color:#ffffff;font-size:14px;font-weight:600;'
                   f'text-decoration:none">View on Google Flights</a></div>')
@@ -299,7 +299,7 @@ def _row(v: Verdict) -> str:
     legs = q.legs
     clock = (f"{legs[0].depart_time} → {legs[-1].arrive_time}"
              if legs and legs[0].depart_time and legs[-1].arrive_time else "")
-    link = (f'<a href="{esc(q.booking_url)}" style="color:{ACCENT};'
+    link = (f'<a href="{esc(_by_price(q.booking_url))}" style="color:{ACCENT};'
             f'text-decoration:none;font-weight:600;white-space:nowrap">View &rarr;</a>'
             if q.booking_url else "")
     return (
@@ -446,6 +446,40 @@ def _labels(watches: list[Watch] | None) -> dict[str, str]:
     return {w.id: f"{w.origin} → {w.destination}" for w in (watches or [])}
 
 
+# Google Flights carries its result ordering in the `tfu` query parameter, as
+# a two-field protobuf: EgIIAQ decodes to 12 02 08 01 - field 1 = 1, "Top
+# flights" - and EgIIAg to 12 02 08 02, field 1 = 2, "Price". Those numbers are
+# SerpApi's documented sort_by values, and the link SerpApi hands back always
+# carries the default.
+#
+# Top flights blends price with convenience, so the fare in the email is often
+# several rows down the page and has to be hunted for. Sorting by price puts it
+# at or near the top. Rewriting the parameter is enough - the search itself is
+# encoded in `tfs`, which is untouched, so this changes only what the page is
+# ordered by and never which flights it shows.
+PRICE_SORTED_TFU = "EgIIAg"
+
+
+def _by_price(url: str) -> str:
+    """Point a Google Flights link at a price-sorted page.
+
+    Anything unexpected is handed back unchanged: a link that lands on the
+    right search unsorted is worth far more than one that breaks.
+    """
+    if not url:
+        return url
+    try:
+        parts = urlsplit(url)
+        if "google.com" not in parts.netloc or "tfs=" not in parts.query:
+            return url
+        params = parse_qsl(parts.query, keep_blank_values=True)
+        params = [(k, v) for k, v in params if k != "tfu"]
+        params.append(("tfu", PRICE_SORTED_TFU))
+        return urlunsplit(parts._replace(query=urlencode(params)))
+    except ValueError:
+        return url
+
+
 def _search_url(origin: str, dest: str, depart: str, ret: str) -> str:
     """A Google Flights link built from the route and dates alone.
 
@@ -461,7 +495,7 @@ def _search_url(origin: str, dest: str, depart: str, ret: str) -> str:
 def _row_url(r: dict, watches: list[Watch] | None) -> str:
     """The stored link if there is one, otherwise one built from the route."""
     if r.get("url"):
-        return r["url"]
+        return _by_price(r["url"])
     origin, dest = r.get("from_id"), r.get("to_id")
     if not (origin and dest):
         w = next((w for w in (watches or []) if w.id == r.get("watch")), None)
@@ -592,26 +626,26 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
         where = labels.get(now["watch"], now["watch"])
         detail = _row_detail(now)
         detail_html = (
-            f'<div style="font-size:13px;color:{INK_2};margin-top:7px">{esc(detail)}</div>'
+            f'<div style="font-size:13.5px;color:{INK_2};margin-top:5px">{esc(detail)}</div>'
             if detail else "")
         # Plain text, no link: this fare is history, and a button beside it
         # would sell a trip at a price that is gone.
         low_html = (
-            f'<div style="font-size:12.5px;color:{INK_3};margin-top:12px">'
+            f'<div style="font-size:12.5px;color:{INK_3};margin-top:6px">'
             f'{esc(_low_line(low))}</div>' if low else "")
         url = _row_url(now, watches)
         button = (
-            f'<div style="margin-top:14px"><a href="{esc(url)}" '
-            f'style="display:inline-block;padding:9px 18px;border-radius:8px;'
-            f'background:{ACCENT};color:#ffffff;font-size:13.5px;font-weight:600;'
+            f'<div style="margin-top:16px"><a href="{esc(url)}" '
+            f'style="display:inline-block;padding:10px 20px;border-radius:8px;'
+            f'background:{ACCENT};color:#ffffff;font-size:14px;font-weight:600;'
             f'text-decoration:none">View on Google Flights</a></div>'
             if url else "")
         level = now.get("level")
         chip = (f'<span style="display:inline-block;padding:3px 9px;border-radius:99px;'
-                f'background:{GOOD_BG};color:{GOOD};font-size:11.5px;font-weight:700;'
+                f'background:{GOOD_BG};color:{GOOD};font-size:12px;font-weight:700;'
                 f'text-transform:uppercase;letter-spacing:.04em">{esc(level)}</span>'
                 if level == "low" else
-                f'<span style="font-size:12px;color:{INK_3}">Google: {esc(level or "unrated")}</span>')
+                f'<span style="font-size:12.5px;color:{INK_3}">Google: {esc(level or "unrated")}</span>')
 
         cards.append(
             f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
@@ -619,10 +653,10 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
             f'margin:0 0 12px"><tr><td style="padding:18px 20px">'
             f'<div style="font-size:14px;font-weight:700;color:{INK}">{esc(where)}</div>'
             f'<div style="margin-top:10px">'
-            f'<span style="font-size:26px;font-weight:700;color:{INK};line-height:1">'
+            f'<span style="font-size:22px;font-weight:700;color:{INK};line-height:1.15">'
             f'{now["currency"]} {now["price"]:,.0f}</span>'
             f'&nbsp;&nbsp;{chip}</div>'
-            f'<div style="font-size:14px;color:{INK};margin-top:10px;font-weight:600">'
+            f'<div style="font-size:15px;color:{INK};margin-top:14px;font-weight:600">'
             f'{esc(_pretty_date(now["depart"]))} &rarr; {esc(_pretty_date(now["ret"], year=True))}</div>'
             f'{detail_html}{low_html}{button}</td></tr></table>'
         )
@@ -654,16 +688,16 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
     if d["empty"]:
         note += (f'<br>{d["empty"]} date pair(s) came back with no fares at all.')
 
-    note_html = (f'<div style="font-size:13.5px;color:{INK_2};line-height:1.55;'
+    note_html = (f'<div style="font-size:13px;color:{INK_2};line-height:1.5;'
                  f'margin-top:4px">{note}</div>') if note else ""
 
     return (
         f'<!doctype html><html><body style="margin:0;padding:0;background:#f6f7f9">'
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
         f'style="background:#f6f7f9"><tr><td align="center" style="padding:24px 12px">'
-        f'<table role="presentation" width="560" cellpadding="0" cellspacing="0" '
-        f'style="width:100%;max-width:560px;font-family:{FONT}">'
-        f'<tr><td style="padding:0 0 18px">'
+        f'<table role="presentation" width="600" cellpadding="0" cellspacing="0" '
+        f'style="width:100%;max-width:600px;font-family:{FONT}">'
+        f'<tr><td style="padding:0 0 20px">'
         f'<div style="font-size:20px;font-weight:700;color:{INK}">Still watching</div>'
         f'</td></tr>'
         f'<tr><td>{heading}{body}</td></tr>'
