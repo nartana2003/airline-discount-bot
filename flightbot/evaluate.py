@@ -48,11 +48,16 @@ def evaluate(watch: Watch, quote: Quote) -> Verdict:
     if mid:
         discount_pct = (quote.price - mid) / mid * 100.0
 
-    # The only rule. Google's verdict is built on real price history for this
-    # route and these dates, and it recalibrates by season on its own - so
-    # there is nothing here to tune, and nothing that goes stale as fares move.
+    # Two rules, neither with a number in it.
+    #
+    # Google's verdict is built on real price history for this route and these
+    # dates, and it recalibrates by season on its own. It catches fares that
+    # are cheap *for when they are* - a December seat that is good for December.
     if quote.price_level and quote.price_level.lower() in rules.alert_on_price_level:
         reasons.append(f"Google rates this fare '{quote.price_level}'")
+
+    # The second rule needs every date for the route before it can be applied
+    # - see mark_record().
 
     return Verdict(
         quote=quote,
@@ -60,3 +65,37 @@ def evaluate(watch: Watch, quote: Quote) -> Verdict:
         reasons=reasons,
         discount_pct=discount_pct,
     )
+
+
+def mark_record(verdicts: list[Verdict], floor: float | None) -> Verdict | None:
+    """Flag the run's cheapest fare when it beats everything seen before.
+
+    The second alerting rule, and it says nothing about seasons: a fare can be
+    the lowest ever seen on a route and still be rated 'typical', which is the
+    whole gap Google's verdict leaves open. This reads the price journal
+    instead of asking Google.
+
+    Applied to the route's cheapest fare only, once every date has been priced.
+    Testing each date against the floor as it arrives would flag every fare
+    under the old record - four dates all announcing they are "the cheapest
+    ever" when only one of them is.
+
+    Self-calibrating: the bar is whatever the market has actually shown, so it
+    never needs revisiting. Self-suppressing: each record has to beat the last.
+    A route with no history has no floor and so cannot set a record, which is
+    what keeps the first run on a new route quiet.
+    """
+    if floor is None:
+        return None
+    priced = [v for v in verdicts if v.quote.price is not None]
+    if not priced:
+        return None
+
+    best = min(priced, key=lambda v: v.quote.price)
+    if best.quote.price >= floor:
+        return None
+
+    best.reasons.append(f"cheapest ever recorded here - previous best was "
+                        f"{best.quote.currency} {floor:,.0f}")
+    best.is_deal = True
+    return best

@@ -112,6 +112,25 @@ def since(after: str | None, path: Path | None = None) -> list[dict]:
     return [r for r in rows if str(r.get("at", "")) > after]
 
 
+def floors(path: Path | None = None) -> dict[str, float]:
+    """watch id -> the cheapest price ever recorded for it.
+
+    The bar a fare has to beat to count as a record. Read once at the start of
+    a run, before any of this run's rows are written, so a fare is only ever
+    compared against runs that came before it. That is also what makes the
+    first run on a new route silent: no history means no floor, and a route
+    with no floor cannot set a record.
+    """
+    out: dict[str, float] = {}
+    for r in read(path):
+        price, watch = r.get("price"), r.get("watch")
+        if not isinstance(price, (int, float)) or not watch:
+            continue
+        if watch not in out or price < out[watch]:
+            out[watch] = float(price)
+    return out
+
+
 def digest(rows: list[dict]) -> dict:
     """Roll rows up into what a periodic 'still alive' report needs to say."""
     priced = [r for r in rows if isinstance(r.get("price"), (int, float))]
@@ -123,7 +142,36 @@ def digest(rows: list[dict]) -> dict:
         if best is None or r["price"] < best["price"]:
             per_route[r["watch"]] = r
 
+    # What the route costs today, per route: the cheapest row from the newest
+    # run. The digest is sent at the tail of a run that has just searched every
+    # date, so today's price is already on disk - reporting it costs nothing.
+    #
+    # Without it the digest shows a low-water mark next to a working booking
+    # link, which reads as a fare you can still buy. Often it isn't.
+    # Newest timestamp per route, not one global newest: record() is called
+    # once per watch, so every route stamps its own `at` seconds apart. A
+    # single global maximum would match only the last route of the run and
+    # leave every other route without a current price.
+    latest_at: dict[str, str] = {}
+    for r in priced:
+        at = str(r.get("at") or "")
+        if at > latest_at.get(r["watch"], ""):
+            latest_at[r["watch"]] = at
+
+    current: dict[str, dict] = {}
+    for r in priced:
+        if str(r.get("at") or "") != latest_at.get(r["watch"]):
+            continue
+        best = current.get(r["watch"])
+        if best is None or r["price"] < best["price"]:
+            current[r["watch"]] = r
+
+    def headline(r: dict) -> float:
+        """Sort on the number the reader sees first, which is today's."""
+        return (current.get(r["watch"]) or r)["price"]
+
     return {
+        "current": current,
         "runs": len(runs),
         "first_run": runs[0] if runs else None,
         "last_run": runs[-1] if runs else None,
@@ -136,7 +184,7 @@ def digest(rows: list[dict]) -> dict:
             for lv in sorted({(r.get("level") or "?") for r in priced})
         },
         # cheapest row per route, cheapest route first
-        "routes": sorted(per_route.values(), key=lambda r: r["price"]),
+        "routes": sorted(per_route.values(), key=headline),
     }
 
 

@@ -472,6 +472,33 @@ def _row_url(r: dict, watches: list[Watch] | None) -> str:
     return ""
 
 
+def _digest_pair(d: dict, r: dict) -> tuple[dict, dict | None]:
+    """(the fare to show, the period's low when that is a different fare).
+
+    Today's price leads because it is the only one that can still be booked.
+    The low is context underneath it. When the newest run IS the low there is
+    only one fare, and printing the same number twice reads as two options.
+    A route missing from the newest run - paused, or added since - has no
+    today, so its low is all there is to show.
+    """
+    now = (d.get("current") or {}).get(r["watch"])
+    if now is None:
+        return r, None
+    # The low is a minimum taken over every row including today's, so it can
+    # only be lower than today or equal to it. Equal means the cheapest fare
+    # on record is the one being quoted, and there is nothing to add.
+    if r["price"] >= now["price"]:
+        return now, None
+    return now, r
+
+
+def _low_line(low: dict) -> str:
+    """"Lowest seen AUD 717 on 12 Aug · Tue 18 May -> Sun 30 May 2027"."""
+    return (f"Lowest seen {low['currency']} {low['price']:,.0f} on "
+            f"{_digest_when(low.get('at'))} · {_pretty_date(low['depart'])} "
+            f"→ {_pretty_date(low['ret'], year=True)}")
+
+
 def _digest_subject(d: dict, labels: dict[str, str] | None = None) -> str:
     """Say the useful thing, not the internal thing.
 
@@ -486,6 +513,8 @@ def _digest_subject(d: dict, labels: dict[str, str] | None = None) -> str:
         # The shape a broken run takes - phrase it so it reads as a problem.
         return "Flight Watch · no fares found all month — worth a look"
 
+    # routes[0] is sorted on the headline, so quote the headline fare.
+    best = (d.get("current") or {}).get(best["watch"]) or best
     where = labels.get(best["watch"], best["watch"])
     price = f"{best['currency']} {best['price']:,.0f}"
     if d["deals"]:
@@ -517,19 +546,24 @@ def _digest_plain(d: dict, labels: dict[str, str] | None = None,
     labels = labels or {}
     lines = ["Still watching.", ""]
     if d["routes"]:
-        lines.append("CHEAPEST SEEN")
+        lines.append("CHEAPEST NOW" if d.get("current") else "CHEAPEST SEEN")
         lines.append("")
         for r in d["routes"]:
-            where = labels.get(r["watch"], r["watch"])
-            lines.append(f"  {where}   {r['currency']} {r['price']:,.0f}"
-                         f"   ({r['level'] or 'unrated'})")
-            lines.append(f"    {_pretty_date(r['depart'])} → {_pretty_date(r['ret'], year=True)}")
-            detail = _row_detail(r)
+            now, low = _digest_pair(d, r)
+            where = labels.get(now["watch"], now["watch"])
+            lines.append(f"  {where}   {now['currency']} {now['price']:,.0f}"
+                         f"   ({now['level'] or 'unrated'})")
+            lines.append(f"    {_pretty_date(now['depart'])} → {_pretty_date(now['ret'], year=True)}")
+            detail = _row_detail(now)
             if detail:
                 lines.append(f"    {detail}")
-            url = _row_url(r, watches)
+            # Only today's fare gets a link. The low is a fact about the past;
+            # a link beside it would offer a trip at a price that has gone.
+            url = _row_url(now, watches)
             if url:
                 lines.append(f"    {url}")
+            if low:
+                lines.append(f"    {_low_line(low)}")
             lines.append("")
     else:
         lines += ["Not one search returned a fare this month.",
@@ -554,19 +588,25 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
 
     cards = []
     for r in d["routes"]:
-        where = labels.get(r["watch"], r["watch"])
-        detail = _row_detail(r)
+        now, low = _digest_pair(d, r)
+        where = labels.get(now["watch"], now["watch"])
+        detail = _row_detail(now)
         detail_html = (
             f'<div style="font-size:13px;color:{INK_2};margin-top:7px">{esc(detail)}</div>'
             if detail else "")
-        url = _row_url(r, watches)
+        # Plain text, no link: this fare is history, and a button beside it
+        # would sell a trip at a price that is gone.
+        low_html = (
+            f'<div style="font-size:12.5px;color:{INK_3};margin-top:12px">'
+            f'{esc(_low_line(low))}</div>' if low else "")
+        url = _row_url(now, watches)
         button = (
             f'<div style="margin-top:14px"><a href="{esc(url)}" '
             f'style="display:inline-block;padding:9px 18px;border-radius:8px;'
             f'background:{ACCENT};color:#ffffff;font-size:13.5px;font-weight:600;'
             f'text-decoration:none">View on Google Flights</a></div>'
             if url else "")
-        level = r.get("level")
+        level = now.get("level")
         chip = (f'<span style="display:inline-block;padding:3px 9px;border-radius:99px;'
                 f'background:{GOOD_BG};color:{GOOD};font-size:11.5px;font-weight:700;'
                 f'text-transform:uppercase;letter-spacing:.04em">{esc(level)}</span>'
@@ -580,18 +620,18 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
             f'<div style="font-size:14px;font-weight:700;color:{INK}">{esc(where)}</div>'
             f'<div style="margin-top:10px">'
             f'<span style="font-size:26px;font-weight:700;color:{INK};line-height:1">'
-            f'{r["currency"]} {r["price"]:,.0f}</span>'
+            f'{now["currency"]} {now["price"]:,.0f}</span>'
             f'&nbsp;&nbsp;{chip}</div>'
             f'<div style="font-size:14px;color:{INK};margin-top:10px;font-weight:600">'
-            f'{esc(_pretty_date(r["depart"]))} &rarr; {esc(_pretty_date(r["ret"], year=True))}</div>'
-            f'{detail_html}{button}</td></tr></table>'
+            f'{esc(_pretty_date(now["depart"]))} &rarr; {esc(_pretty_date(now["ret"], year=True))}</div>'
+            f'{detail_html}{low_html}{button}</td></tr></table>'
         )
 
     if cards:
         body = "".join(cards)
         heading = ('<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
                    f'color:{INK_3};text-transform:uppercase;margin:0 0 10px">'
-                   'Cheapest seen</div>')
+                   f'{"Cheapest now" if d.get("current") else "Cheapest seen"}</div>')
     else:
         heading = ""
         body = (

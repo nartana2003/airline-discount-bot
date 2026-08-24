@@ -8,7 +8,7 @@ import sys
 
 from . import config, history, notify
 from . import provider as provider_mod
-from .evaluate import Verdict, evaluate
+from .evaluate import Verdict, evaluate, mark_record
 from .provider import SearchError, build_provider
 from .state import State
 
@@ -111,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
     history_path = history.DEMO_HISTORY_PATH if args.demo else history.HISTORY_PATH
     pending: list[notify.RouteAlert] = []
 
+    # Read once, up front. Every fare this run is compared against the same
+    # snapshot of what came before, so a record set earlier in the run cannot
+    # raise the bar for the dates checked after it.
+    floors = history.floors(history_path)
+
     for watch in selected:
         verdicts: list[Verdict] = []
         for probe in dates_for(watch):
@@ -122,6 +127,10 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             searches_used += 0 if args.demo else 1
             verdicts.append(evaluate(watch, quote))
+
+        # Second alerting rule, applied once every date for this route is in:
+        # the cheapest of them, if it beats anything recorded before today.
+        mark_record(verdicts, floors.get(watch.id))
 
         notify.print_results(watch, verdicts, colour=colour)
 
