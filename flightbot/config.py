@@ -169,6 +169,12 @@ class Watch:
         if end < start:
             return []
 
+        # `start` is anchored to `today`, so the whole window slides forward
+        # each run rather than sitting at fixed calendar dates. The same exact
+        # date pair only gets re-probed if the days elapsed since the last run
+        # happen to be an exact multiple of `step` - otherwise each run's
+        # cursor lands on a new offset and samples a different, merely
+        # overlapping, set of dates.
         step = max(self.step_days, 1)
         out: list[Probe] = []
         cursor = start
