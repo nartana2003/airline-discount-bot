@@ -9,14 +9,14 @@
   "defaults": {
     "_note": "Shared by every route. These barely ever change, which is why they live here once instead of being repeated on each watch.",
     "window": {
-      "days_from_now_min": 60,
+      "days_from_now_min": 90,
       "days_from_now_max": 300,
       "_note": "How far ahead to look. 300 is the booking horizon - airlines haven't loaded schedules past it, so searches there return nothing and still cost a credit."
     },
     "adults": 1,
     "travel_class": 1,
     "stops": 0,
-    "_stops_note": "0 = any, 1 = nonstop only, 2 = 1 stop or fewer, 3 = 2 stops or fewer. Left at 0 (any). Nonstop-only was tried live on 24 Aug 2026 and reverted: it cost AUD 45-200 more per fare on BNE-NRT, and BNE-HND returned ZERO results because Brisbane has no direct Haneda service - every search would have spent a credit for nothing. Any single route can still override this with its own \"stops\" key.",
+    "_stops_note": "0 = any, 1 = nonstop only, 2 = 1 stop or fewer, 3 = 2 stops or fewer. Shared by every route and set from the control panel. Currently 0 (any). This is a decision-time filter, not a search-time one - every date is always searched unfiltered, and this only decides which fares are alert-worthy. It used to be sent to the search itself: nonstop-only was tried live on 24 Aug 2026 and reverted because BNE-HND returned ZERO results under it - Brisbane has no direct Haneda service, so the search came back empty and still spent the credit, every single date, every run. That is fixed now; turning this on no longer costs anything, it just narrows which fares can trigger an alert. A route may still override this with its own \"stops\" key if you hand-edit one in.",
     "currency": "AUD",
     "market": {
       "gl": "au",
@@ -32,21 +32,21 @@
       "_cooldown_note": "null = never email the same date pair twice, however many runs go by. Set hours instead to be reminded periodically about a fare that's still cheap.",
       "renotify_on_drop_pct": 5,
       "_renotify_note": "The one exception: if the price fell another this-many % since the last alert, it gets through. Being told twice about the same fare is noise; a further drop is new information."
-    }
+    },
+    "trip_days": 14,
+    "_trip_note": "Trip length in days, shared by every route so prices stay comparable across dates and routes: a cheaper result means a cheaper date, not a shorter trip. It also keys the price history - a fare is only ever compared against past fares of the same length."
   },
   "watches": [
     {
       "enabled": true,
       "origin": "BNE",
       "destination": "NRT",
-      "trip_days": 12,
       "_note": "Use a REAL airport code. The TYO metro code is accepted by the API but returns zero flights - verified live. NRT (Narita) is where the budget carriers fly; HND (Haneda) is closer to central Tokyo."
     },
     {
       "enabled": true,
       "origin": "BNE",
-      "destination": "BOM",
-      "trip_days": 14
+      "destination": "HND"
     }
   ]
 }

@@ -127,7 +127,15 @@ def _params(watch: Watch, probe: Probe) -> dict:
         "type": 1,  # round trip
         "adults": watch.adults,
         "travel_class": watch.travel_class,
-        "stops": watch.stops,
+        # Always 0 (any) - `watch.stops` is applied as a decision-time filter
+        # in evaluate.py instead, not sent here. Filtering the SEARCH means a
+        # route with no matching service gets nothing back and still spends
+        # the credit - verified live on BNE-HND under nonstop-only: every one
+        # of 24 searches a run returned zero results, because Brisbane has no
+        # direct Haneda service at all. Asking for everything costs the same
+        # one credit and comes back with a real price either way - the actual
+        # connecting fare, journalled, just not treated as alert-worthy.
+        "stops": 0,
         "currency": watch.currency,
         "gl": watch.gl,
         "hl": watch.hl,

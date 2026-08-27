@@ -12,13 +12,13 @@ WATCH = Watch(id="bne-nrt", origin="BNE", destination="NRT")
 
 
 def quote(price: float | None, level: str | None = "typical", *, day: int = 18,
-          watch: Watch = WATCH, legs: bool = False) -> Quote:
+          watch: Watch = WATCH, legs: bool = False, stops: int | None = 0) -> Quote:
     return Quote(
         watch_id=watch.id,
         probe=Probe(depart=date(2027, 5, day), ret=date(2027, 5, day + 12)),
         price=price, currency="AUD", price_level=level,
         typical_low=900, typical_high=1500, airlines=("Jetstar",),
-        stops=0, duration_minutes=640,
+        stops=stops, duration_minutes=640,
         booking_url="https://www.google.com/travel/flights?hl=en&tfs=CBwQAh&tfu=EgIIAQ",
         legs=(Leg("Jetstar", "JQ9", "BNE", "NRT",
                   f"2027-05-{day:02d} 09:30", f"2027-05-{day:02d} 17:40"),) if legs else (),

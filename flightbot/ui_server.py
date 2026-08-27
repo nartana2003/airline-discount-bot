@@ -14,12 +14,109 @@ from __future__ import annotations
 import json
 import threading
 import webbrowser
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import config
+from . import config, history, notify
+from .state import State
 
 UI_DIR = config.ROOT / "ui"
+
+
+def _digest_payload() -> dict:
+    """Render the digest through the exact same code a real send uses, so the
+    panel can never show a preview that disagrees with the email.
+
+    Covers everything since the last one actually sent, same as a real send -
+    so this doubles as a live preview of what the NEXT digest will contain,
+    not a frozen copy of a past one. Nothing durably records what a past
+    digest said, only when it was sent, so that is the honest thing to show.
+    """
+    state = State.load()
+    since_at = state.last_digest_at()
+    rows = history.since(since_at, history.HISTORY_PATH)
+    d = history.digest(rows)
+
+    try:
+        raw = json.loads(config.WATCHES_PATH.read_text(encoding="utf-8"))
+        watches, _ = config.load_watchlist_data(raw)
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError):
+        watches = []
+    subject, html = notify.render_digest(d, watches)
+
+    return {
+        "html": html,
+        "subject": subject,
+        "last_sent_at": since_at,
+        "due": state.digest_due(),
+    }
+
+
+def _live_plan_inputs(runs_per_month: float) -> tuple[int | None, float | None, dict | None]:
+    """(available, runs_remaining, quota) - the same numbers a real run would
+    plan from, read from state.json rather than fetched.
+
+    The panel has no API key, and a network round trip to render a form is the
+    wrong trade. This is instead the exact reading the last real run recorded
+    - so a projection built from it cannot disagree with what that run
+    actually did - and `quota` carries its own date so staleness is visible
+    rather than assumed.
+
+    All three come back None together when no real run has ever recorded a
+    reading: a fresh install, or one that has only ever run `--demo`. There is
+    nothing to plan against yet, so every projection falls back to the
+    declared cap and the average cadence, same as a `--demo` run does.
+    """
+    try:
+        st = State.load()
+    except OSError:
+        return None, None, None
+    q = st.quota()
+    if q is None:
+        return None, None, None
+    return q["left"], st.runs_remaining(runs_per_month), q
+
+
+def _next_route(watches: list, budget, available: int | None = None,
+                runs_remaining: float | None = None) -> dict:
+    """What adding one more route would do to the run, and whether to allow it.
+
+    The budget is fixed, so an extra route never overspends - plan_sampling
+    just makes every route sample more coarsely to fit. What actually breaks is
+    usefulness: split far enough, each route checks so few dates that the run
+    stops being a search and becomes a spot check.
+
+    Worked out by running the real planner over a trial list rather than
+    repeating its arithmetic in JavaScript, for the same reason the rest of
+    this function exists - two implementations of the budget maths would
+    eventually disagree. The trial copies an existing watch, so its window and
+    trip length are realistic; `replace` keeps the originals unplanned.
+
+    `available`/`runs_remaining` are the live figures from `_live_plan_inputs`,
+    threaded through rather than re-read here so the whole page is built from
+    one consistent snapshot. Left at their defaults - the tests do this - the
+    projection falls back to the declared cap and the average cadence, exactly
+    like `plan_sampling` itself does.
+    """
+    active = [w for w in watches if w.enabled]
+    if not active:
+        # Nothing to extrapolate from, and the first route is always allowed.
+        return {"ok": True, "per_route": None, "per_run": None, "per_month": None}
+
+    trial = [replace(w) for w in active] + [replace(active[-1], id="__trial__")]
+    config.plan_sampling(trial, budget, available, runs_remaining)
+    counts = [len(w.probes()) for w in trial]
+    per_run = sum(counts)
+    per_month = round(per_run * budget.runs_per_month)
+
+    return {
+        "ok": min(counts) >= config.MIN_DATES_PER_ROUTE and per_month <= budget.monthly_search_cap,
+        "per_route": min(counts),
+        "per_run": per_run,
+        "per_month": per_month,
+        "floor": config.MIN_DATES_PER_ROUTE,
+    }
 
 
 def _summary(raw: dict) -> dict:
@@ -30,7 +127,8 @@ def _summary(raw: dict) -> dict:
     never disagree with what a run will actually do.
     """
     watches, budget = config.load_watchlist_data(raw)
-    config.plan_sampling(watches, budget)
+    available, runs_remaining, quota = _live_plan_inputs(budget.runs_per_month)
+    config.plan_sampling(watches, budget, available, runs_remaining)
 
     routes = []
     for w in watches:
@@ -51,10 +149,19 @@ def _summary(raw: dict) -> dict:
         "per_month": per_month,
         "cap": budget.monthly_search_cap,
         "runs_per_month": budget.runs_per_month,
+        "next_route": _next_route(watches, budget, available, runs_remaining),
+        # The declared cap is what THIS plan was costed against; the quota is
+        # what a real run would plan from. Sent separately rather than swapped
+        # in, so the panel can show the plan and the reality side by side.
+        "quota": quota,
         "active": sum(1 for w in watches if w.enabled),
+        # Taken from a real watch, falling back to the dataclass defaults rather
+        # than to numbers typed here - a second copy of the window would go
+        # stale the moment watches.json changed, and the panel would quietly
+        # report a range the bot does not search.
         "window": {
-            "days_from_now_min": watches[0].days_from_now_min if watches else 60,
-            "days_from_now_max": watches[0].days_from_now_max if watches else 300,
+            "days_from_now_min": (watches[0] if watches else config.Watch).days_from_now_min,
+            "days_from_now_max": (watches[0] if watches else config.Watch).days_from_now_max,
         },
     }
 
@@ -120,6 +227,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"doc": raw, "summary": _summary(raw)})
             except (KeyError, ValueError, TypeError) as exc:
                 self._json(200, {"doc": raw, "summary": None, "warning": str(exc)})
+            return
+
+        if self.path == "/api/digest":
+            # Read-only preview, isolated from route editing: a broken journal
+            # or watchlist here must never stop the routes screen from working.
+            try:
+                self._json(200, _digest_payload())
+            except (OSError, KeyError, ValueError, TypeError) as exc:
+                self._json(500, {"error": f"could not build the digest preview: {exc}"})
             return
 
         self._send(404, b"not found", "text/plain")

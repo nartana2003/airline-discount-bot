@@ -81,37 +81,6 @@ h1 em { font-style: italic; }
 }
 .icon-btn:hover { color: var(--ink); border-color: var(--ink-2); }
 
-/* ---------- budget docket ---------- */
-.budget {
-  border: 1px solid var(--line-2); background: var(--card); border-radius: 2px;
-  padding: 20px 22px; margin-bottom: 34px; position: relative; overflow: hidden;
-}
-.figs { display: flex; gap: 34px; flex-wrap: wrap; }
-.fig .n {
-  font: 400 32px/1 var(--serif); font-variant-numeric: tabular-nums; letter-spacing: -.02em;
-}
-.fig .n .of { font-size: 17px; color: var(--ink-3); }
-.fig .n.warn { color: var(--warn); }
-.fig .n.over { color: var(--stamp); }
-.fig .l {
-  font: 500 10px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase;
-  color: var(--ink-3); margin-top: 7px;
-}
-.stamp {
-  position: absolute; right: -34px; top: 16px; transform: rotate(28deg);
-  border: 2px solid var(--stamp); color: var(--stamp); opacity: .3;
-  font: 700 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
-  padding: 6px 40px; border-radius: 2px; pointer-events: none;
-}
-.strip { display: flex; gap: 3px; margin-top: 18px; }
-.strip i { height: 8px; flex: 1 1 0; background: var(--line); }
-.strip i.on { background: var(--stamp); opacity: .7; }
-.strip.ok i.on { background: var(--ok); opacity: .55; }
-.strip.warn i.on { background: var(--warn); opacity: .6; }
-.budget-note {
-  font: 400 12.5px/1.5 var(--sans); color: var(--stamp); margin-top: 14px;
-}
-
 /* ---------- section rule ---------- */
 .sec { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .sec h2 {
@@ -193,19 +162,61 @@ h1 em { font-style: italic; }
 }
 
 /* trip length, centred between the two ports */
-.mid { flex: none; padding-top: 4px; text-align: center; width: 100px; }
-.mid .trip {
-  width: 56px; text-align: center; font: 700 17px/1 var(--mono); color: var(--ink);
-  background: var(--field); border: 1px dashed var(--line-2); border-radius: 2px;
-  padding: 7px 4px; font-variant-numeric: tabular-nums;
-}
-.mid .trip:focus { outline: none; border-color: var(--stamp); border-style: solid; }
-.mid .trip.bad { border-color: var(--stamp); border-style: solid; }
+/* The flight path between the two ports. Trip length used to be typed here,
+   but it is the same for every route now and lives in the controls bar. */
+.mid { flex: none; padding-top: 26px; text-align: center; width: 100px; }
 .mid .u {
   display: block; font: 500 10px/1 var(--mono); letter-spacing: .12em;
-  text-transform: uppercase; color: var(--ink-3); margin-top: 7px;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 7px;
+  font-variant-numeric: tabular-nums;
 }
-.mid svg { display: block; margin: 8px auto 0; }
+.mid svg { display: block; margin: 0 auto; }
+
+/* ---------- choosers ---------- */
+/* Native select, restyled. The arrow is a CSS triangle on the wrapper rather
+   than a background-image, because an inlined SVG can't read currentColor and
+   would stay dark-on-dark when the theme flips. */
+.pick-wrap { position: relative; display: inline-block; max-width: 100%; }
+.pick-wrap::after {
+  content: ""; position: absolute; right: 9px; top: 50%; margin-top: -2px;
+  border: 4px solid transparent; border-top-color: var(--ink-3);
+  pointer-events: none;
+}
+.pick {
+  appearance: none; -webkit-appearance: none; max-width: 100%;
+  font: 400 13.5px/1.3 var(--serif); color: var(--ink);
+  background: var(--field); border: 1px dashed var(--line-2); border-radius: 2px;
+  padding: 6px 26px 6px 9px; cursor: pointer;
+}
+.pick:focus { outline: none; border-color: var(--stamp); border-style: solid; }
+.pick:disabled { cursor: default; opacity: .5; }
+
+/* ---------- shared controls ---------- */
+/* Cabin, trip length and stops apply to every route, so they sit once above
+   the cards rather than repeating on each one. Three fields side by side. */
+.controls {
+  display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;
+  background: var(--card); border: 1px solid var(--line-2); border-radius: 3px;
+  padding: 16px 18px; margin-bottom: 14px;
+}
+.ctl { flex: 1 1 150px; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.ctl .k {
+  font: 500 9.5px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ctl .pick-wrap, .ctl .pick { width: 100%; }
+.ctl .trip {
+  width: 100%; font: 400 13.5px/1.3 var(--serif); color: var(--ink);
+  background: var(--field); border: 1px dashed var(--line-2); border-radius: 2px;
+  padding: 6px 9px; font-variant-numeric: tabular-nums;
+}
+.ctl .trip:focus { outline: none; border-color: var(--stamp); border-style: solid; }
+.ctl .trip.bad { border-color: var(--stamp); border-style: solid; }
+.ctl-note {
+  flex: 1 1 100%; margin: 0;
+  font: 400 12.5px/1.45 var(--serif); font-style: italic; color: var(--ink-3);
+}
+.ctl-note.bad { color: var(--stamp); font-style: normal; }
 
 /* the sampling legend */
 .legend {
@@ -264,6 +275,13 @@ h1 em { font-style: italic; }
   font: 400 16px/1 var(--serif); color: var(--ink-2);
 }
 .add:hover { border-color: var(--ink); color: var(--ink); border-style: solid; }
+.add:disabled { cursor: default; opacity: .45; }
+.add:disabled:hover { border-color: var(--line-2); color: var(--ink-2); border-style: dashed; }
+.add-note {
+  margin: 9px 0 0; text-align: center;
+  font: 400 12.5px/1.5 var(--serif); font-style: italic; color: var(--ink-3);
+}
+.add-note:empty { display: none; }
 .no-routes {
   text-align: center; padding: 46px 24px; background: var(--card);
   border: 1px solid var(--line-2); border-radius: 3px; color: var(--ink-3);
@@ -276,6 +294,26 @@ h1 em { font-style: italic; }
 /* ---------- misc ---------- */
 .foot-note { margin: 0; }
 .foot-note:empty { display: none; }
+
+/* ---------- digest preview ---------- */
+.digest-panel {
+  border: 1px solid var(--line-2); background: var(--card); border-radius: 3px;
+  padding: 16px 18px 18px; margin-bottom: 34px;
+}
+.digest-meta {
+  margin: 0 0 12px; font: 400 12.5px/1.5 var(--sans); color: var(--ink-2);
+}
+.digest-meta .due {
+  color: var(--stamp); font-weight: 600;
+}
+/* The framed document is a real email and stays light-mode regardless of the
+   panel's theme, the same way it would in an inbox - so it sits on its own
+   plain white sheet rather than the page's paper tone, which would otherwise
+   clash against it in dark mode. */
+.digest-frame {
+  display: block; width: 100%; height: 640px; border: 1px solid var(--line-2);
+  border-radius: 2px; background: #ffffff;
+}
 code {
   font: 11.5px var(--mono); background: var(--paper); color: var(--ink-2);
   border: 1px solid var(--line); border-radius: 2px; padding: 1px 5px;
@@ -297,7 +335,6 @@ code {
     flex-direction: row; padding: 14px 20px;
   }
   .mid { width: auto; }
-  .figs { gap: 22px; }
 }
 </style>
 </head>
@@ -317,13 +354,49 @@ code {
         </svg>
       </button>
     </div>
-    <div class="budget" id="budget"></div>
   </header>
 
   <div id="banner"></div>
   <div class="sec"><h2>Routes</h2><span class="rule"></span></div>
+
+  <!-- One set of settings for every route. Select options are built from
+       CABINS and STOPS in the script, so the labels and the numbers the API
+       expects are declared in exactly one place. -->
+  <div class="controls" id="controls">
+    <label class="ctl">
+      <span class="k">Cabin</span>
+      <span class="pick-wrap">
+        <select class="pick" data-k="travel_class" aria-label="Cabin class" disabled></select>
+      </span>
+    </label>
+    <label class="ctl">
+      <span class="k">Trip length</span>
+      <input type="number" class="trip" data-k="trip_days" min="1" max="60"
+             aria-label="Trip length in days" disabled>
+    </label>
+    <label class="ctl">
+      <span class="k">Stops</span>
+      <span class="pick-wrap">
+        <select class="pick" data-k="stops" aria-label="Maximum stops" disabled></select>
+      </span>
+    </label>
+    <p class="ctl-note" id="ctl-note"></p>
+  </div>
+
   <div class="routes" id="routes"></div>
   <button class="add" id="add">Add a route</button>
+  <p class="add-note" id="add-note"></p>
+
+  <div class="sec"><h2>Digest</h2><span class="rule"></span></div>
+  <div class="digest-panel" id="digest-panel">
+    <p class="digest-meta" id="digest-meta">Loading…</p>
+    <!-- The exact HTML the real digest email sends, rendered by the same
+         function - never a JS reimplementation that could drift from it.
+         Sandboxed to a plain document: no scripts, and every link opens a
+         real tab rather than navigating this frame away from the panel. -->
+    <iframe class="digest-frame" id="digest-frame" title="Digest preview"
+            sandbox="allow-popups allow-popups-to-escape-sandbox"></iframe>
+  </div>
 
   <p class="foot-note" id="footnote"></p>
 </div>
@@ -377,6 +450,32 @@ const PRIMARY = new Set(("LHR CDG JFK HND ICN PVG BKK SIN DXB FRA MUC FCO MXP BC
 // Gaulle's is "Paris (Roissy-en-France, Val-d'Oise)", so on match quality alone
 // the wrong airport wins. If you typed the city, you meant the main airport.
 const sizeBonus = (a) => [12, 5, 1][a[4]] + (PRIMARY.has(a[0]) ? 30 : 0);
+
+// Cabin class and stop filter, numbered exactly as the google_flights engine
+// numbers them - these go straight into the search request.
+//
+// `stops` is a CEILING on what the search will return, not a count, and 0 is
+// the opposite of what 0 means on a returned itinerary: as a filter it means
+// "don't filter", as a result it means "nonstop". Same word, inverted sense.
+const CABINS = { 1: "Economy", 2: "Premium economy", 3: "Business", 4: "First" };
+const STOPS = { 0: "Any", 1: "Nonstop only", 2: "1 stop or fewer", 3: "2 stops or fewer" };
+
+// Effective values are read from `doc`, not from the server summary. A summary
+// only refreshes after a save round-trip, so a control bound to it would snap
+// back to the old value on the re-render that follows the change.
+// All three are shared settings: they live in `defaults` and apply to every
+// route. Read straight from `doc` rather than from the server summary, which
+// only refreshes after a save round-trip and would make a control snap back to
+// its old value on the re-render that follows a change.
+const SHARED = {
+  travel_class: { fallback: 1 },
+  trip_days: { fallback: 12 },
+  stops: { fallback: 0 },
+};
+const sharedOf = (key) => +(doc?.defaults?.[key] ?? SHARED[key].fallback);
+
+const options = (map, sel) => Object.entries(map).map(([v, label]) =>
+  `<option value="${v}"${+v === sel ? " selected" : ""}>${esc(label)}</option>`).join("");
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
@@ -436,56 +535,69 @@ function routeErrors(w) {
   if (!code.test(w.origin || "")) out.push("origin");
   if (!code.test(w.destination || "")) out.push("destination");
   if (w.origin && w.origin === w.destination) out.push("same");
-  if (!(+w.trip_days >= 1 && +w.trip_days <= 60)) out.push("trip");
   return out;
 }
 const errorText = {
   origin: "Pick a departure airport.",
   destination: "Pick a destination airport.",
   same: "Origin and destination are the same.",
-  trip: "Trip length must be between 1 and 60 days.",
 };
-const docValid = () => (doc?.watches || []).every(w => routeErrors(w).length === 0);
+
+// Trip length is shared, so it is checked once against the controls bar rather
+// than reported on every card.
+const tripError = () => {
+  const n = sharedOf("trip_days");
+  return n >= 1 && n <= 60 ? "" : "Trip length must be between 1 and 60 days.";
+};
+const docValid = () => !tripError()
+  && (doc?.watches || []).every(w => routeErrors(w).length === 0);
 
 // ---------------------------------------------------------------- rendering
-function renderBudget() {
-  const el = $("budget");
-  if (!summary) { el.innerHTML = ""; return; }
+/** "3 days ago" — coarse on purpose. The figure is only refreshed by a run, so
+ *  minutes would imply a precision it does not have. */
+function ago(iso) {
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return "";
+  const days = Math.floor((Date.now() - then) / 86400000);
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
 
-  const { per_run, per_month, cap, active, runs_per_month } = summary;
-  const pct = cap ? Math.min(per_month / cap, 1) : 0;
-  const over = per_month > cap;
-  const near = !over && per_month > cap * 0.85;
-  const state = over ? "over" : near ? "warn" : "ok";
+/** How often the schedule fires. The only run-cost figure left on the page.
+ *
+ *  The budget docket that used to sit here - routes, searches per run, a meter
+ *  against the monthly cap - is gone. It was arithmetic the panel cannot act on:
+ *  sampling density is derived, so there is no dial to turn in response to it,
+ *  and a run plans from the live quota rather than the cap it was drawn against.
+ *  What the numbers were really there to prevent now guards the Add button
+ *  directly, which is the moment the decision is actually made.
+ */
+/** Whether another route can be afforded, and why not when it cannot.
+ *
+ *  The budget is fixed and split between enabled routes, so adding one never
+ *  overspends - plan_sampling simply samples everything more coarsely. What it
+ *  can do is thin the sample until a route checks too few dates to find
+ *  anything, and that is what this refuses. The projection comes from the
+ *  server, which works it out by running the real planner over a trial list.
+ */
+function renderAdd() {
+  const nx = summary?.next_route;
+  const blocked = !!nx && nx.ok === false;
+  $("add").disabled = blocked || !doc;
 
-  $("cadence").textContent = runs_per_month >= 4
-    ? "Checked weekly" : `Checked ${runs_per_month}× a month`;
+  const note = $("add-note");
+  if (!blocked) { note.textContent = ""; return; }
+  note.textContent = nx.per_month > summary.cap
+    ? `Another route would need ${nx.per_month.toLocaleString()} searches a month, `
+      + `over the ${summary.cap.toLocaleString()} budget. Pause or remove one first.`
+    : `Another route would leave each one checking only ${nx.per_route} dates a run `
+      + `— too thin to find much. The monthly budget is fixed and split between `
+      + `routes, so pause or remove one first.`;
+}
 
-  // The strip is a torn-ticket meter: 20 segments, filled to the used share.
-  const SEGS = 20, lit = Math.round(pct * SEGS);
-  const strip = Array.from({ length: SEGS },
-    (_, i) => `<i class="${i < lit ? "on" : ""}"></i>`).join("");
-
-  // Numbers carry this; prose only appears when something is actually wrong.
-  el.innerHTML = `
-    <div class="stamp">${Math.round(pct * 100)}% used</div>
-    <div class="figs">
-      <div class="fig">
-        <div class="n">${active}</div>
-        <div class="l">route${active === 1 ? "" : "s"}</div>
-      </div>
-      <div class="fig">
-        <div class="n">${per_run}</div>
-        <div class="l">per run</div>
-      </div>
-      <div class="fig">
-        <div class="n ${state}">${per_month.toLocaleString()}<span class="of"> / ${cap.toLocaleString()}</span></div>
-        <div class="l">searches a month</div>
-      </div>
-    </div>
-    <div class="strip ${state}">${strip}</div>
-    ${over ? `<div class="budget-note">Over cap — the bot will refuse to start a run.
-                Pause a route, or raise the cap in watches.json.</div>` : ""}`;
+function renderCadence() {
+  const n = summary?.runs_per_month;
+  $("cadence").textContent = !n ? ""
+    : n >= 4 ? "Checked weekly" : `Checked ${n}× a month`;
 }
 
 // One airport field, printed like a ticket: the resolved code set large above,
@@ -513,8 +625,6 @@ function renderRoutes() {
     return;
   }
 
-  const win = summary?.window || { days_from_now_min: 60, days_from_now_max: 300 };
-
   el.innerHTML = list.map((w, i) => {
     const errs = routeErrors(w);
     const info = summary?.routes?.[i];
@@ -524,9 +634,7 @@ function renderRoutes() {
         <div class="route">
           ${picker("origin", w.origin, "From — city or airport", bad("origin"))}
           <div class="mid">
-            <input type="number" class="trip${bad("trip")}" data-k="trip_days" min="1" max="60"
-                   value="${+w.trip_days || 12}" aria-label="Trip length in days">
-            <span class="u">days</span>
+            <span class="u">${sharedOf("trip_days")} days</span>
             <svg width="96" height="26" viewBox="0 0 96 26" fill="none"
                  stroke="currentColor" stroke-width="1.2" style="color:var(--ink-3)">
               <path d="M2 8h74" stroke-dasharray="1 4" stroke-linecap="round"/>
@@ -541,14 +649,14 @@ function renderRoutes() {
         ${errs.length
           ? `<div class="card-err">${errs.map(e => esc(errorText[e])).join(" ")}</div>`
           : info && info.searches_per_run
-            ? `<div class="legend" title="One search covers one exact date pair, so a run samples the window rather than covering it. The run itself happens weekly.">
+            ? `<div class="legend" title="One search covers one exact date pair, so a run samples the window rather than covering it. The dates sit on a fixed calendar grid, so each weekly run re-prices the same ones and can tell when a fare moves.">
                  <div>
                    <div class="k">Sampling</div>
                    <div class="v">Every ${ordinal(info.step_days)} departure date</div>
                  </div>
                  <div>
                    <div class="k">Window</div>
-                   <div class="v">${win.days_from_now_min}–${win.days_from_now_max} days ahead</div>
+                   <div class="v">${summary.window.days_from_now_min}–${summary.window.days_from_now_max} days ahead</div>
                  </div>
                  <div>
                    <div class="k">Covering</div>
@@ -585,8 +693,43 @@ function renderFootnote() {
   $("footnote").innerHTML = "";
 }
 
+// Cabin, trip length and stops are shared defaults rather than per-route
+// fields, so they are drawn once above the cards. Disabled until there is a
+// doc to write them into.
+function renderControls() {
+  const el = $("controls");
+  const cabin = el.querySelector('[data-k="travel_class"]');
+  const trip = el.querySelector('[data-k="trip_days"]');
+  const stops = el.querySelector('[data-k="stops"]');
+
+  for (const f of [cabin, trip, stops]) f.disabled = !doc;
+  cabin.innerHTML = options(CABINS, sharedOf("travel_class"));
+  stops.innerHTML = options(STOPS, sharedOf("stops"));
+
+  // Not rewritten while it has focus: replacing the value mid-keystroke moves
+  // the caret to the end, so typing "14" over "12" comes out backwards.
+  if (document.activeElement !== trip) trip.value = String(sharedOf("trip_days"));
+
+  const err = tripError();
+  trip.classList.toggle("bad", !!err);
+
+  // One note at a time, and only when there is something to say: the trip
+  // error if the number is unusable, otherwise a reminder of what this
+  // setting actually does now - it decides which fares can alert, not which
+  // ones get searched for, so it can never zero out a route's results.
+  const note = $("ctl-note");
+  note.className = "ctl-note" + (err ? " bad" : "");
+  note.textContent = err ? err
+    : sharedOf("stops") ? "Every date is still searched — this only decides "
+      + "which fares can alert. A route with no matching service just won't "
+      + "have any."
+    : "";
+}
+
 function render() {
-  renderBudget();
+  renderCadence();
+  renderAdd();
+  renderControls();
   renderRoutes();
   renderFootnote();
 }
@@ -699,6 +842,31 @@ async function load() {
     $("banner").innerHTML = `<div class="banner">${esc(err.message)}</div>`;
     pill("Error", "error");
   }
+
+  loadDigest();   // isolated: a broken journal must never block route editing
+}
+
+/** Preview of the digest, built server-side from the exact function a real
+ *  send uses. Covers everything since the last one actually sent, so this
+ *  doubles as "what the next digest will say" - nothing durably records what
+ *  a past one said, only when it went out. */
+async function loadDigest() {
+  try {
+    const d = await getJSON("/api/digest");
+    if (d.error) throw new Error(d.error);
+
+    const when = d.last_sent_at
+      ? `Last sent ${esc(ago(d.last_sent_at))}` : "Never sent yet";
+    const due = d.due
+      ? `<span class="due">${d.last_sent_at ? " — another is due" : " — one is due"}</span>` : "";
+    $("digest-meta").innerHTML = `${when}${due} · showing what the next one`
+      + ` covers so far — ${esc(d.subject)}`;
+
+    $("digest-frame").srcdoc = d.html;
+  } catch (err) {
+    $("digest-meta").textContent = `Digest preview unavailable: ${err.message}`;
+    $("digest-frame").srcdoc = "";
+  }
 }
 
 function scheduleSave() {
@@ -785,11 +953,36 @@ $("routes").addEventListener("input", (e) => {
     showList(ap, searchAirports(raw));
     return;   // no re-render mid-typing - it would blow away the field
   }
+});
 
-  if (key === "trip_days") {
-    w.trip_days = +e.target.value;
-    scheduleSave();
-  }
+// ---------------------------------------------------------------- shared controls
+/** Write a shared setting, and clear any per-route copy of it.
+ *
+ *  The loader resolves these as `entry.get(key, defaults.get(key))`, so a value
+ *  left on an individual watch shadows the shared one - the control would look
+ *  like it had done nothing. Stripping the overrides is what makes "shared"
+ *  true rather than merely intended.
+ */
+function setShared(key, value) {
+  doc ||= { watches: [] };
+  (doc.defaults ||= {})[key] = value;
+  for (const w of doc.watches) delete w[key];
+}
+
+$("controls").addEventListener("input", (e) => {
+  if (e.target.dataset.k !== "trip_days") return;
+  setShared("trip_days", +e.target.value);
+  render();          // renderControls leaves a focused field alone, so the
+  scheduleSave();    // caret survives; the cards restate the new length
+});
+
+// Selects fire `change`, not `input`.
+$("controls").addEventListener("change", (e) => {
+  const key = e.target.dataset.k;
+  if (key !== "travel_class" && key !== "stops") return;
+  setShared(key, +e.target.value);
+  render();
+  scheduleSave();
 });
 
 $("routes").addEventListener("keydown", (e) => {
@@ -856,12 +1049,14 @@ $("routes").addEventListener("click", (e) => {
 });
 
 $("add").onclick = () => {
+  if ($("add").disabled) return;
   doc ||= { watches: [] };
   // Carry the origin over from the last route - you generally fly out of the
   // same airport - but seed nothing when there is no last route. No city is
   // baked in; the very first route asks where you're flying from.
   const origin = doc.watches.at(-1)?.origin || "";
-  doc.watches.push({ enabled: true, origin, destination: "", trip_days: 12 });
+  // No trip_days: it is a shared setting now, so a new route inherits it.
+  doc.watches.push({ enabled: true, origin, destination: "" });
   render();
   // Focus whichever field is actually blank.
   const card = document.querySelectorAll(".card")[doc.watches.length - 1];
@@ -883,6 +1078,9 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Fill the controls before the first fetch resolves, so the bar never shows
+// empty selects - render() only runs once a doc has actually loaded.
+renderControls();
 load();
 </script>
 </body>

@@ -3,5 +3,19 @@
     "allow": [
       "Bash(python -c ' *)"
     ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/readme-check.sh\"",
+            "timeout": 20,
+            "statusMessage": "Checking whether README.md is stale"
+          }
+        ]
+      }
+    ]
   }
 }

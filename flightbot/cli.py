@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
 from . import config, history, notify
 from . import provider as provider_mod
-from .evaluate import Verdict, evaluate, mark_record
+from .evaluate import Verdict, evaluate, mark_drop
 from .provider import SearchError, build_provider
 from .state import State
 
@@ -31,13 +32,33 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--force-notify", action="store_true",
                    help="ignore the cooldown and re-send alerts for any current deal")
     p.add_argument("--digest", action="store_true",
-                   help="send the monthly 'still watching' summary now, without "
-                        "waiting for the first run of next month")
+                   help="send the 'still watching' summary now, without waiting "
+                        "for the next scheduled one")
     p.add_argument("--no-colour", action="store_true", help="plain output, no ANSI codes")
     p.add_argument("--limit", type=int, metavar="N",
                    help="only search the first N dates per watch - a cheap live "
                         "smoke test that doesn't spend a full run's quota")
     return p.parse_args(argv)
+
+
+def _fit(plan: dict[str, list], available: int) -> int:
+    """Drop probes until the run fits `available`. Returns how many went.
+
+    Takes from whichever route currently has the most dates, so routes stay
+    balanced rather than the last one in the file losing everything. Probes come
+    off the end, which is the far side of the window - the dates airlines are
+    least likely to have loaded anyway.
+    """
+    dropped = 0
+    total = sum(len(p) for p in plan.values())
+    while total > max(available, 0):
+        biggest = max(plan.values(), key=len)
+        if not biggest:
+            break            # nothing left to give back
+        biggest.pop()
+        total -= 1
+        dropped += 1
+    return dropped
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,9 +69,27 @@ def main(argv: list[str] | None = None) -> int:
         from .ui_server import serve
         return serve(port=args.port)
 
+    # Asked BEFORE the watchlist is planned, because it is what the plan is
+    # built from. SerpApi's own count is the only budget authority. A local
+    # tally used to shadow it, reconciled with min(), but the two count
+    # different windows - the tally by calendar month, SerpApi from whenever
+    # the plan renews - and the tally also counted searches SerpApi served from
+    # cache and never charged for. It drifted high and vetoed runs the real
+    # quota allowed. A second number that can only be wrong is worse than no
+    # second number, so it is gone.
+    available = None
+    if not args.demo:
+        available = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
+        if available is None:
+            print("stopping: could not reach SerpApi to check the remaining "
+                  "quota. Rather than guess, this run does not start.",
+                  file=sys.stderr)
+            return 2
+
     try:
-        watches, budget = config.load_watchlist()
-    except (OSError, ValueError, KeyError) as exc:
+        raw = json.loads(config.WATCHES_PATH.read_text(encoding="utf-8"))
+        watches, budget = config.load_watchlist_data(raw)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"could not read watches.json: {exc}", file=sys.stderr)
         return 1
 
@@ -68,37 +107,42 @@ def main(argv: list[str] | None = None) -> int:
     state = State.load(config.ROOT / "state.demo.json" if args.demo else None)
     colour = not args.no_colour and sys.stdout.isatty()
 
-    # Budget guard: the free tier is 250 searches/month and each date pair
-    # costs one, so a run's cost is simply how many dates it samples.
+    # Hand the figure to the control panel, which has no way to ask for itself.
+    # Recorded BEFORE it is read back below, so this run's own reading is part
+    # of the history runs_remaining() reasons over - including a reset that
+    # happened just before this very run, which only this reading can reveal.
+    state.record_quota(available)
+
+    # How many runs are left before that quota resets - see
+    # State.runs_remaining(). Planned across the routes this run will ACTUALLY
+    # search: dividing the whole watchlist's allowance and only then selecting
+    # one with `--watch` left its unspent share on the table, sampling that
+    # route at less than half the density it could have afforded. Selection
+    # decides the divisor, so this has to come after it.
+    runs_remaining = None if args.demo else state.runs_remaining(budget.runs_per_month)
+    config.plan_sampling(selected, budget, available, runs_remaining)
+
+    # Each date pair costs one search, so a run's cost is simply how many dates
+    # it samples - and the plan was already built from the quota above, so this
+    # comes out well inside it.
     def dates_for(w):
         probes = w.probes()
         return probes[: args.limit] if args.limit else probes
 
-    planned = sum(len(dates_for(w)) for w in selected)
-    if not args.demo:
-        # SerpApi's own count is the only budget authority. A local tally used
-        # to shadow it, reconciled with min(), but the two count different
-        # windows - the tally by calendar month, SerpApi from whenever the plan
-        # renews - and the tally also counted searches SerpApi served from
-        # cache and never charged for. It drifted high and vetoed runs the real
-        # quota allowed. A second number that can only be wrong is worse than
-        # no second number, so it is gone.
-        available = provider_mod.searches_left(os.getenv("SERPAPI_KEY", ""))
-        if available is None:
-            print("stopping: could not reach SerpApi to check the remaining "
-                  "quota. Rather than guess, this run does not start.",
-                  file=sys.stderr)
-            return 2
+    plan = {w.id: dates_for(w) for w in selected}
+    planned = sum(len(p) for p in plan.values())
+
+    if available is not None:
+        # Only reachable in the corner the planner cannot solve: even one probe
+        # per route costs more than is left. Trimming beats the abort this
+        # replaced, which refused the whole run when the plan came to 51 and 50
+        # remained - fifty dates' worth of results is strictly better than none.
         if planned > available:
-            print(
-                f"stopping: this run needs {planned} searches but only {available} "
-                f"remain. Sampling density is derived from the cap, so this "
-                f"usually means the month's quota is already spent - wait for "
-                f"the reset, or pause a route in --ui.",
-                file=sys.stderr,
-            )
-            return 2
-        print(f"quota: {available} left, this run needs {planned}")
+            dropped = _fit(plan, available)
+            planned -= dropped
+            print(f"quota: only {available} searches left, so {dropped} of the "
+                  f"planned dates were dropped from this run.", file=sys.stderr)
+        print(f"quota: {available} left, this run plans {planned}")
 
     try:
         provider = build_provider(os.getenv("SERPAPI_KEY", ""), args.demo)
@@ -132,14 +176,14 @@ def main(argv: list[str] | None = None) -> int:
     # Read once, up front. Every fare this run is compared against the same
     # snapshot of what came before, so a record set earlier in the run cannot
     # raise the bar for the dates checked after it.
-    floors = history.floors(history_path)
+    baselines = history.baselines(history_path)
 
     # One timestamp for the whole run - see history.run_stamp().
     run_at = history.run_stamp()
 
     for watch in selected:
         verdicts: list[Verdict] = []
-        for probe in dates_for(watch):
+        for probe in plan[watch.id]:
             try:
                 quote = provider.search(watch, probe)
             except SearchError as exc:
@@ -150,8 +194,12 @@ def main(argv: list[str] | None = None) -> int:
             verdicts.append(evaluate(watch, quote))
 
         # Second alerting rule, applied once every date for this route is in:
-        # the cheapest of them, if it beats anything recorded before today.
-        mark_record(verdicts, floors.get(watch.id))
+        # whichever date has fallen furthest below what that same date normally
+        # costs. Keyed on trip length too, because a 7-day fare compared against
+        # 12-day history is comparing different goods - see history.baselines().
+        # `watch` is passed so a fare outside the route's stops preference
+        # can't be crowned the week's drop - see mark_drop()'s docstring.
+        mark_drop(verdicts, baselines.get((watch.id, watch.trip_days)), watch)
 
         notify.print_results(watch, verdicts, colour=colour)
 
@@ -228,13 +276,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nlogged {logged} price(s) to {history_path.name} "
               f"({total['rows']} rows over {total['runs']} run(s))")
 
-    # The monthly "still watching" note. Sent on the first run of each calendar
-    # month, covering everything seen since the last one - so a missed run
-    # widens the window rather than losing the period.
+    # The "still watching" note. Sent every DIGEST_INTERVAL_DAYS, covering
+    # everything seen since the last one - so a missed run widens the window
+    # rather than losing the period.
     #
     # This has to run BEFORE state.save(): record_digest() only sets a field in
-    # memory, so sending after the save left the month unwritten and the digest
-    # fired again on every single run.
+    # memory, so sending after the save left the timestamp unwritten and the
+    # digest fired again on every single run.
     if not args.dry_run and not args.demo and (args.digest or state.digest_due()):
         d = history.digest(history.since(state.last_digest_at(), history_path))
         if d["searches"] == 0 and not args.digest:
@@ -247,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     notify.send_digest(settings, d, watches=selected)
                     state.record_digest()
-                    print(f"sent the monthly digest to {settings.to} "
+                    print(f"sent the digest to {settings.to} "
                           f"({d['runs']} run(s), {d['searches']} searches)")
                 except OSError as exc:
                     print(f"digest failed to send: {exc}", file=sys.stderr)

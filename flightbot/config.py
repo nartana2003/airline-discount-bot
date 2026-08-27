@@ -28,6 +28,44 @@ FIXTURES_DIR = ROOT / "fixtures"
 # 327 returned none. Not configurable - it's a fact about the world.
 MAX_HORIZON_DAYS = 300
 
+# The bar a fare has to clear to count as unusually cheap for its route: the
+# cheapest tenth of everything ever recorded for it. A percentile rather than
+# the all-time minimum, because a minimum only ever ratchets downward - once a
+# lucky 600 is on record nothing above 600 can ever qualify again, and the rule
+# suppresses itself to dead rather than to rare. Roughly a tenth of observations
+# sit below a tenth percentile by construction, so this one cannot go silent.
+#
+# Not configurable, for the reason absolute thresholds were removed from
+# DealRules: a fixed dollar figure needs retuning whenever fares structurally
+# move, whereas a percentile recalibrates itself against whatever the route has
+# actually done.
+FLOOR_PERCENTILE = 10
+
+# A percentile over a handful of rows describes the handful, not the route.
+# Below this many observations a route simply has no bar, which is also what
+# keeps a newly added route quiet until it has been watched for a while.
+MIN_FLOOR_OBSERVATIONS = 30
+
+# How often the "still watching" digest goes out. It used to be keyed to the
+# calendar month directly - sent on the first run after the 1st - which meant
+# the gap between two digests could be anywhere from one day to thirty-one
+# depending on where in the month they landed, so no two covered a comparable
+# period. A fixed 30-day interval keeps the monthly cadence without that drift.
+DIGEST_INTERVAL_DAYS = 30
+
+# Fewest departure dates a route must still get per run for the run to be worth
+# making. The monthly budget is fixed and split between enabled routes, so an
+# extra route never overspends - plan_sampling just samples everything more
+# coarsely. What it can do is thin the sample until a route is checking so few
+# dates that it would miss almost anything, and that is the point at which the
+# control panel stops letting you add another.
+MIN_DATES_PER_ROUTE = 6
+
+# The prior used for how long a SerpApi billing period lasts, before enough
+# resets have actually been observed to measure it directly - see
+# State.runs_remaining(). An average month; SerpApi bills monthly.
+DEFAULT_QUOTA_PERIOD_DAYS = 30.44
+
 
 def load_dotenv(path: Path | None = None) -> None:
     """Populate os.environ from a .env file. Existing vars always win."""
@@ -169,22 +207,38 @@ class Watch:
         if end < start:
             return []
 
-        # `start` is anchored to `today`, so the whole window slides forward
-        # each run rather than sitting at fixed calendar dates. The same exact
-        # date pair only gets re-probed if the days elapsed since the last run
-        # happen to be an exact multiple of `step` - otherwise each run's
-        # cursor lands on a new offset and samples a different, merely
-        # overlapping, set of dates.
+        # Departure dates come from a FIXED lattice - every date whose ordinal
+        # divides by `step` - rather than from counting forward from `start`.
+        #
+        # `start` moves with `today`, so counting from it dragged the entire
+        # grid along each run. Measured on this watchlist: a 9-day step with
+        # weekly runs shifted every sampled date by 7 days and did not revisit
+        # a single one for nine consecutive runs. Nothing was ever priced
+        # twice, which left state.py unable to recognise a date pair it had
+        # already emailed about (its key is the pair itself), and prices.jsonl
+        # a scatter of one-off dates rather than the per-date price history
+        # this module's docstring says it is collecting.
+        #
+        # Anchored, the window slides ACROSS a stable set of dates: one drops
+        # off the near end each run, one appears at the far end, and everything
+        # between is re-priced. Same cost, same density, same span.
+        #
+        # The lattice only holds while `step` does, and plan_sampling() derives
+        # step from the budget - so adding or pausing a route re-cuts the grid
+        # and the per-date series starts over. That is the cost of deriving
+        # density instead of pinning it, and it is worth knowing before adding
+        # a route to a watchlist that has been running a while.
         step = max(self.step_days, 1)
         out: list[Probe] = []
-        cursor = start
+        cursor = start + timedelta(days=-start.toordinal() % step)
         while cursor <= end:
             out.append(Probe(depart=cursor, ret=cursor + timedelta(days=self.trip_days)))
             cursor += timedelta(days=step)
         return out
 
 
-def plan_sampling(watches: list[Watch], budget: Budget) -> None:
+def plan_sampling(watches: list[Watch], budget: Budget, available: int | None = None,
+                  runs_remaining: float | None = None) -> None:
     """Set `step_days` on every enabled watch so the whole run fits the budget.
 
     This is the dial that used to be hand-tuned in watches.json, and getting it
@@ -192,14 +246,39 @@ def plan_sampling(watches: list[Watch], budget: Budget) -> None:
     simple enough to solve directly: split the per-run allowance evenly between
     enabled routes, then pick the densest step that keeps each within its share.
 
+    `available` is SerpApi's own count of searches left, and when it is passed
+    the run plans against that instead of the declared `monthly_search_cap`.
+    The cap is a number somebody typed; the quota is what the account actually
+    has, and the two drift apart the moment a run is missed, fails halfway, or
+    is triggered by hand.
+
+    `runs_remaining` is how many runs are left before that quota resets - see
+    State.runs_remaining(). It matters because `available` shrinks through a
+    billing period from ordinary spending even when nothing is wrong, and
+    dividing it by `budget.runs_per_month` - the AVERAGE cadence across a full
+    period, which never shrinks - made every run sample more sparsely than the
+    one before it, all period long, only snapping back at reset. Dividing by
+    the runs actually left instead keeps the per-run allowance roughly flat: a
+    period with runs missed leaves quota unspent among fewer future runs, so
+    the runs that remain sample DENSER; a period already half spent divides
+    what is left among the runs that remain rather than assuming a full one.
+
+    Both parameters default to None - for the control panel, `--demo`, and the
+    tests - and each falls back independently: no `available` falls back to
+    the declared cap, no `runs_remaining` falls back to the average cadence.
+    That second fallback is also what a fresh install gets, before any run has
+    recorded enough quota history to infer a period boundary from.
+
     The trade is worth stating plainly: adding a route makes every route sample
-    more coarsely, because the monthly cap is fixed. Nothing silently overspends.
+    more coarsely, because the allowance is fixed. Nothing silently overspends.
     """
     active = [w for w in watches if w.enabled]
     if not active:
         return
 
-    per_run = budget.monthly_search_cap / max(budget.runs_per_month, 0.1)
+    allowance = budget.monthly_search_cap if available is None else max(available, 0)
+    denom = budget.runs_per_month if runs_remaining is None else max(runs_remaining, 0.1)
+    per_run = allowance / max(denom, 0.1)
     share = per_run / len(active)
 
     for w in active:
@@ -226,11 +305,16 @@ def _default_id(origin: str, destination: str) -> str:
     return f"{origin}-{destination}".lower()
 
 
-def load_watchlist(path: Path | None = None) -> tuple[list[Watch], Budget]:
-    """Return (watches, budget) from disk, with sampling already planned."""
+def load_watchlist(path: Path | None = None,
+                   available: int | None = None) -> tuple[list[Watch], Budget]:
+    """Return (watches, budget) from disk, with sampling already planned.
+
+    `available` is passed straight to plan_sampling - see there for why the
+    live quota beats the declared cap.
+    """
     raw = json.loads((path or WATCHES_PATH).read_text(encoding="utf-8"))
     watches, budget = load_watchlist_data(raw)
-    plan_sampling(watches, budget)
+    plan_sampling(watches, budget, available)
     return watches, budget
 
 
@@ -290,7 +374,10 @@ def load_watchlist_data(raw: dict) -> tuple[list[Watch], Budget]:
                 origin=origin,
                 destination=destination,
                 enabled=bool(e.get("enabled", True)),
-                trip_days=int(e.get("trip_days", 12)),
+                # Shared, like adults and travel_class - the control panel sets
+                # one trip length for the whole watchlist. A route may still
+                # carry its own if you hand-edit one in.
+                trip_days=int(e.get("trip_days", d.get("trip_days", 12))),
                 days_from_now_min=int(win.get("days_from_now_min", 60)),
                 days_from_now_max=int(win.get("days_from_now_max", MAX_HORIZON_DAYS)),
                 adults=int(d.get("adults", 1)),

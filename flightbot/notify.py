@@ -267,6 +267,7 @@ def _card(v: Verdict, hero: bool) -> str:
     button = ""
     if q.booking_url:
         button = (f'<div style="margin-top:16px"><a href="{esc(_by_price(q.booking_url))}" '
+                  f'target="_blank" rel="noopener" '
                   f'style="display:inline-block;padding:10px 20px;border-radius:8px;'
                   f'background:{ACCENT};color:#ffffff;font-size:14px;font-weight:600;'
                   f'text-decoration:none">View on Google Flights</a></div>')
@@ -299,7 +300,7 @@ def _row(v: Verdict) -> str:
     legs = q.legs
     clock = (f"{legs[0].depart_time} → {legs[-1].arrive_time}"
              if legs and legs[0].depart_time and legs[-1].arrive_time else "")
-    link = (f'<a href="{esc(_by_price(q.booking_url))}" style="color:{ACCENT};'
+    link = (f'<a href="{esc(_by_price(q.booking_url))}" target="_blank" rel="noopener" style="color:{ACCENT};'
             f'text-decoration:none;font-weight:600;white-space:nowrap">View &rarr;</a>'
             if q.booking_url else "")
     return (
@@ -567,6 +568,85 @@ def _low_line(low: dict, since: str | None = None) -> str:
             f"→ {_pretty_date(low['ret'], year=True)}")
 
 
+def _spread_line(sp: dict | None) -> str:
+    """"Best of 26 dates sampled · 31% under the median date (AUD 1,015)".
+
+    The "when should I fly" answer, and the reason it belongs in the digest
+    rather than in an alert: on a seasonal route the cheapest sampled date is
+    always well below the median, every run, whether or not anything moved.
+    Monthly it is the shape of the year; weekly it would be wallpaper.
+    """
+    if not sp or not sp.get("under_pct"):
+        return ""
+    return (f"Best of {sp['dates']} dates sampled · {sp['under_pct']}% under "
+            f"the median date ({sp['currency']} {sp['median']:,.0f})")
+
+
+def _month_label(ymd: str | None) -> str:
+    """"2027-04-30" -> "Apr 2027"."""
+    try:
+        return datetime.strptime(str(ymd)[:7] + "-01", "%Y-%m-%d").strftime("%b %Y")
+    except ValueError:
+        return str(ymd or "")[:7]
+
+
+def _months_plain(rows: list[dict]) -> list[str]:
+    """The shape of the year: cheapest date in each departure month.
+
+    The spread line says how good the best date is. This says WHEN the good
+    months are, which is what you need to pick when to travel rather than
+    whether to book today.
+    """
+    if not rows:
+        return []
+    best = min(r["price"] for r in rows)
+    out = ["    Cheapest date in each month:"]
+    for r in rows:
+        mark = "  <- cheapest" if r["price"] == best else ""
+        when = f"{_pretty_date(r['depart'])} -> {_pretty_date(r.get('ret'), year=True)}"
+        out.append(f"      {_month_label(r['depart']):<9}"
+                   f"{r['currency']} {r['price']:>6,.0f}   "
+                   f"{when}{mark}")
+    return out
+
+
+def _months_html(rows: list[dict], watches: list[Watch] | None) -> str:
+    """Same table, with every month's fare linked.
+
+    These come from the newest run, so each one is a price that can still be
+    booked - unlike the period low, which is deliberately left unlinked because
+    a link beside a fare that has gone reads as an offer.
+    """
+    if not rows:
+        return ""
+    best = min(r["price"] for r in rows)
+    cells = []
+    for r in rows:
+        top = r["price"] == best
+        price = f'{r["currency"]} {r["price"]:,.0f}'
+        url = _row_url(r, watches)
+        if url:
+            price = (f'<a href="{esc(url)}" target="_blank" rel="noopener" '
+                     f'style="color:{ACCENT};text-decoration:none">{price}</a>')
+        weight = "700" if top else "400"
+        colour = GOOD if top else INK
+        cells.append(
+            f'<tr>'
+            f'<td style="padding:3px 12px 3px 0;font-size:13px;color:{INK_2};'
+            f'white-space:nowrap">{esc(_month_label(r["depart"]))}</td>'
+            f'<td style="padding:3px 12px 3px 0;font-size:13px;font-weight:{weight};'
+            f'color:{colour};white-space:nowrap;font-variant-numeric:tabular-nums">{price}</td>'
+            f'<td style="padding:3px 0;font-size:13px;color:{INK_3};'
+            f'white-space:nowrap">{esc(_pretty_date(r["depart"]))} &rarr; '
+            f'{esc(_pretty_date(r.get("ret"), year=True))}</td>'
+            f'</tr>')
+    return (f'<div style="font-size:11px;font-weight:700;letter-spacing:.06em;'
+            f'color:{INK_3};text-transform:uppercase;margin:16px 0 6px">'
+            f'Cheapest date in each month</div>'
+            f'<table role="presentation" cellpadding="0" cellspacing="0">'
+            f'{"".join(cells)}</table>')
+
+
 def _digest_subject(d: dict, labels: dict[str, str] | None = None) -> str:
     """Say the useful thing, not the internal thing.
 
@@ -614,11 +694,15 @@ def _digest_plain(d: dict, labels: dict[str, str] | None = None,
     labels = labels or {}
     lines = ["Still watching.", ""]
     if d["routes"]:
-        lines.append("CHEAPEST NOW" if d.get("current") else "CHEAPEST SEEN")
-        lines.append("")
         for r in d["routes"]:
             now, low = _digest_pair(d, r)
             where = _route_label(now, labels)
+            # Per route, not one heading for the whole digest: a route missing
+            # from the latest run (paused, or just added) falls back to its
+            # period low even while a heading up top said "now" for everyone.
+            is_now = (d.get("current") or {}).get(now["watch"]) is not None
+            lines.append("CHEAPEST FLIGHT ON THIS ROUTE, RIGHT NOW" if is_now
+                        else "CHEAPEST FLIGHT SEEN ON THIS ROUTE THIS PERIOD")
             lines.append(f"  {where}   {now['currency']} {now['price']:,.0f}"
                          f"   ({now['level'] or 'unrated'})")
             lines.append(f"    {_pretty_date(now['depart'])} → {_pretty_date(now['ret'], year=True)}")
@@ -632,6 +716,10 @@ def _digest_plain(d: dict, labels: dict[str, str] | None = None,
                 lines.append(f"    {url}")
             if low:
                 lines.append(f"    {_low_line(low, d.get('first_run'))}")
+            sp = _spread_line((d.get("spread") or {}).get(now["watch"]))
+            if sp:
+                lines.append(f"    {sp}")
+            lines += _months_plain((d.get("months") or {}).get(now["watch"], []))
             lines.append("")
     else:
         lines += ["Not one search returned a fare this month.",
@@ -658,6 +746,11 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
     for r in d["routes"]:
         now, low = _digest_pair(d, r)
         where = _route_label(now, labels)
+        # See the plain-text renderer: whether THIS route's price is from the
+        # latest run or a fallback to its period low, not a whole-digest guess.
+        is_now = (d.get("current") or {}).get(now["watch"]) is not None
+        route_label = ('Cheapest flight on this route, right now' if is_now
+                      else 'Cheapest flight seen on this route this period')
         detail = _row_detail(now)
         detail_html = (
             f'<div style="font-size:13.5px;color:{INK_2};margin-top:5px">{esc(detail)}</div>'
@@ -667,9 +760,14 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
         low_html = (
             f'<div style="font-size:12.5px;color:{INK_3};margin-top:6px">'
             f'{esc(_low_line(low, d.get("first_run")))}</div>' if low else "")
+        months_html = _months_html((d.get("months") or {}).get(now["watch"], []), watches)
+        spread_text = _spread_line((d.get("spread") or {}).get(now["watch"]))
+        spread_html = (
+            f'<div style="font-size:12.5px;color:{INK_3};margin-top:6px">'
+            f'{esc(spread_text)}</div>' if spread_text else "")
         url = _row_url(now, watches)
         button = (
-            f'<div style="margin-top:16px"><a href="{esc(url)}" '
+            f'<div style="margin-top:16px"><a href="{esc(url)}" target="_blank" rel="noopener" '
             f'style="display:inline-block;padding:10px 20px;border-radius:8px;'
             f'background:{ACCENT};color:#ffffff;font-size:14px;font-weight:600;'
             f'text-decoration:none">View on Google Flights</a></div>'
@@ -685,6 +783,9 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
             f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
             f'style="border:1px solid {LINE};border-radius:10px;background:#ffffff;'
             f'margin:0 0 12px"><tr><td style="padding:18px 20px">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:.06em;'
+            f'color:{INK_3};text-transform:uppercase;margin-bottom:6px">'
+            f'{esc(route_label)}</div>'
             f'<div style="font-size:14px;font-weight:700;color:{INK}">{esc(where)}</div>'
             f'<div style="margin-top:10px">'
             f'<span style="font-size:22px;font-weight:700;color:{INK};line-height:1.15">'
@@ -692,16 +793,12 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
             f'&nbsp;&nbsp;{chip}</div>'
             f'<div style="font-size:15px;color:{INK};margin-top:14px;font-weight:600">'
             f'{esc(_pretty_date(now["depart"]))} &rarr; {esc(_pretty_date(now["ret"], year=True))}</div>'
-            f'{detail_html}{low_html}{button}</td></tr></table>'
+            f'{detail_html}{low_html}{spread_html}{button}{months_html}</td></tr></table>'
         )
 
     if cards:
         body = "".join(cards)
-        heading = ('<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
-                   f'color:{INK_3};text-transform:uppercase;margin:0 0 10px">'
-                   f'{"Cheapest now" if d.get("current") else "Cheapest seen"}</div>')
     else:
-        heading = ""
         body = (
             f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
             f'style="border:1px solid #f0c9c4;border-radius:10px;background:#fdf4f3">'
@@ -734,7 +831,7 @@ def _digest_html(d: dict, labels: dict[str, str] | None = None,
         f'<tr><td style="padding:0 0 20px">'
         f'<div style="font-size:20px;font-weight:700;color:{INK}">Still watching</div>'
         f'</td></tr>'
-        f'<tr><td>{heading}{body}</td></tr>'
+        f'<tr><td>{body}</td></tr>'
         f'<tr><td style="padding:6px 0 0">{note_html}</td></tr>'
         f'</table></td></tr></table></body></html>'
     )
@@ -752,6 +849,17 @@ def check_login(settings: EmailSettings) -> None:
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(settings.host, settings.port, context=context) as server:
         server.login(settings.user, settings.password)
+
+
+def render_digest(d: dict, watches: list[Watch] | None = None) -> tuple[str, str]:
+    """(subject, html) - what send_digest would mail, without sending it.
+
+    For the control panel's preview: same rendering code a real send uses, so
+    the preview can never disagree with the email, without exposing the
+    module's internal helpers to callers outside it.
+    """
+    labels = _labels(watches)
+    return _digest_subject(d, labels), _digest_html(d, labels, watches)
 
 
 def send_digest(settings: EmailSettings, d: dict,

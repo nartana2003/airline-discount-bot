@@ -16,11 +16,14 @@ in a diff, and reads back a line at a time rather than all at once.
 from __future__ import annotations
 
 import json
+import math
+import statistics
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import ROOT
+from .config import FLOOR_PERCENTILE, MIN_FLOOR_OBSERVATIONS, ROOT
 from .evaluate import Verdict
 
 HISTORY_PATH = ROOT / "prices.jsonl"
@@ -124,22 +127,100 @@ def since(after: str | None, path: Path | None = None) -> list[dict]:
     return [r for r in rows if str(r.get("at", "")) > after]
 
 
-def floors(path: Path | None = None) -> dict[str, float]:
-    """watch id -> the cheapest price ever recorded for it.
+def _percentile(values: list[float], pct: float) -> float:
+    """Linear-interpolated percentile. Stdlib only, and explicit about ties.
 
-    The bar a fare has to beat to count as a record. Read once at the start of
-    a run, before any of this run's rows are written, so a fare is only ever
-    compared against runs that came before it. That is also what makes the
-    first run on a new route silent: no history means no floor, and a route
-    with no floor cannot set a record.
+    `statistics.quantiles` would do this, but only in fixed cuts (quartiles,
+    deciles) and it raises below n=2 - this is called with whatever a route
+    happens to have accumulated, so it needs to be total over any non-empty
+    list.
     """
-    out: dict[str, float] = {}
+    xs = sorted(values)
+    if len(xs) == 1:
+        return xs[0]
+    k = (len(xs) - 1) * pct / 100.0
+    lo, hi = math.floor(k), math.ceil(k)
+    if lo == hi:
+        return xs[int(k)]
+    return xs[lo] + (xs[hi] - xs[lo]) * (k - lo)
+
+
+@dataclass(frozen=True)
+class Baseline:
+    """What a route's fares are judged against: each date's own past prices.
+
+    `typical` maps a departure date to the median price previously recorded
+    for it. `ratio` is the bar a fare has to come in under, expressed as a
+    fraction of that median - 0.9 meaning "at least a tenth below what this
+    date normally costs here".
+    """
+
+    ratio: float
+    typical: dict[str, float]
+
+    def score(self, price: float, depart: str) -> float | None:
+        """Price as a fraction of what that exact date normally costs.
+
+        None when the date has no history - a date that has just entered the
+        window has nothing to be compared against, and guessing would make its
+        first sighting look like a crash.
+        """
+        was = self.typical.get(depart)
+        if not was:
+            return None
+        return price / was
+
+
+def baselines(path: Path | None = None) -> dict[tuple[str, int], Baseline]:
+    """(watch id, trip length) -> what its fares are measured against.
+
+    The comparison is per departure date, and that is the whole point. Pooling
+    every date into one list made the bar measure the CALENDAR rather than the
+    market: April is always cheaper than December on a seasonal route, so the
+    cheapest tenth of a pooled list is simply the April dates, every run,
+    forever. The rule fired on "it is April" while claiming to mean "this fare
+    is cheap", and it could not see a change at all - an April fare drifting UP
+    from 640 to 660 still cleared the bar, while December collapsing from 1,400
+    to 1,000 did not come near it.
+
+    Dividing each price by its own date's median removes the season, because
+    every date is then measured against itself. What is left on that common
+    scale is movement, which is the thing worth emailing about. The ratios are
+    then pooled across the route so there is enough data for a percentile to
+    mean something - a single date rarely has enough readings of its own.
+
+    Only dates seen more than once contribute. A date with one reading is its
+    own median, so it would contribute a ratio of exactly 1.0 and drag the bar
+    towards "any drop at all counts".
+
+    Keyed on trip length as well as route because trip length is most of the
+    price: a 12-day and a 7-day fare are different goods, and changing one
+    starts a fresh baseline rather than making every fare look like a bargain.
+
+    Read once at the start of a run, before any of this run's rows are written,
+    so a fare is only ever compared against runs that came before it. A route
+    with fewer than MIN_FLOOR_OBSERVATIONS usable readings gets no baseline at
+    all, which is what keeps a newly added route quiet.
+    """
+    # (route, trip) -> departure date -> prices seen for it
+    seen: dict[tuple[str, int], dict[str, list[float]]] = {}
     for r in read(path):
-        price, watch = r.get("price"), r.get("watch")
-        if not isinstance(price, (int, float)) or not watch:
+        price, watch, trip = r.get("price"), r.get("watch"), r.get("trip_days")
+        depart = r.get("depart")
+        if not isinstance(price, (int, float)) or not watch or not depart:
             continue
-        if watch not in out or price < out[watch]:
-            out[watch] = float(price)
+        # bool is an int subclass; a stray `true` here would key a real bucket.
+        if not isinstance(trip, int) or isinstance(trip, bool):
+            continue
+        seen.setdefault((str(watch), trip), {}).setdefault(str(depart), []).append(float(price))
+
+    out: dict[tuple[str, int], Baseline] = {}
+    for key, by_date in seen.items():
+        typical = {d: statistics.median(ps) for d, ps in by_date.items()}
+        ratios = [p / typical[d] for d, ps in by_date.items() if len(ps) > 1 for p in ps]
+        if len(ratios) < MIN_FLOOR_OBSERVATIONS:
+            continue
+        out[key] = Baseline(ratio=_percentile(ratios, FLOOR_PERCENTILE), typical=typical)
     return out
 
 
@@ -178,12 +259,72 @@ def digest(rows: list[dict]) -> dict:
         if best is None or r["price"] < best["price"]:
             current[r["watch"]] = r
 
+    # How much cheaper the best date is than a typical one, within the newest
+    # run. A run prices every sampled date at the same moment, so these are
+    # directly comparable with no history and no extra searches - the numbers
+    # were already paid for and were previously just thrown away.
+    #
+    # This lives in the digest rather than in an alert on purpose. It answers
+    # "when should I fly", and that answer barely changes week to week: on a
+    # seasonal route the cheapest date is always well under the median, every
+    # single run, whether or not any price moved. As an alert it would fire
+    # constantly and carry no news; as a monthly line it is exactly the shape
+    # of the year, which is the thing worth knowing.
+    #
+    # Median, not mean: one 3,000 outlier drags a mean up far enough to make
+    # every other fare look like a bargain.
+    spread: dict[str, dict] = {}
+    for watch, at in latest_at.items():
+        sampled = [r for r in priced
+                   if r["watch"] == watch and str(r.get("at") or "") == at]
+        # Under four dates there is no meaningful "typical date" to be under.
+        if len(sampled) < 4:
+            continue
+        prices = [r["price"] for r in sampled]
+        mid = statistics.median(prices)
+        if mid <= 0:
+            continue
+        best = min(prices)
+        spread[watch] = {
+            "dates": len(sampled),
+            "median": mid,
+            "cheapest": best,
+            "under_pct": round((mid - best) / mid * 100),
+            "currency": rows[0].get("currency") or "",
+        }
+
+    # The shape of the year: the cheapest departure date within each month.
+    #
+    # Taken from the newest run only, so every price here is one that can still
+    # be booked and can carry a link. A low-water mark per month would read the
+    # same and be a fare that is gone.
+    #
+    # The spread line above says how good the best date is; this says WHEN the
+    # good dates are, which is the question a flexible traveller actually has
+    # and the one the alerting rules deliberately do not answer.
+    months: dict[str, list[dict]] = {}
+    for watch, at in latest_at.items():
+        best: dict[str, dict] = {}
+        for r in priced:
+            if r["watch"] != watch or str(r.get("at") or "") != at:
+                continue
+            month = str(r.get("depart") or "")[:7]        # YYYY-MM
+            if len(month) != 7:
+                continue
+            if month not in best or r["price"] < best[month]["price"]:
+                best[month] = r
+        # One month is not a shape, and the headline already quoted that fare.
+        if len(best) > 1:
+            months[watch] = [best[m] for m in sorted(best)]
+
     def headline(r: dict) -> float:
         """Sort on the number the reader sees first, which is today's."""
         return (current.get(r["watch"]) or r)["price"]
 
     return {
         "current": current,
+        "spread": spread,
+        "months": months,
         "runs": len(runs),
         "first_run": runs[0] if runs else None,
         "last_run": runs[-1] if runs else None,
